@@ -633,6 +633,7 @@ def detect_overlay_data(file_path, format_name):
             result["offset"] = iend_offset
             result["overlay_bytes"] = overlay
             result["info"] = info
+            result["meta"] = {"offset": iend_offset, "len": len(overlay), "ext": info["ext"], "type": info["type"]}
             result["preview"] = f"Appended overlay detected at offset {iend_offset} ({len(overlay)} bytes, {info['type']}):\n{info['preview']}"
 
     except Exception as e:
@@ -735,6 +736,7 @@ def inspect_palette_and_colors(image_path):
                 if len(text) >= 4 and any(c.isalpha() for c in text):
                     result["found"] = True
                     result["word"] = text
+                    result["meta"] = {"source": "palette", "word": text}
                     result["preview"] = f"Palette Color-as-Text Steganography detected: '{text}'"
                     return result
 
@@ -749,6 +751,7 @@ def inspect_palette_and_colors(image_path):
                 if len(text) >= 4 and any(c.isalpha() for c in text):
                     result["found"] = True
                     result["word"] = text
+                    result["meta"] = {"source": "colors", "word": text}
                     result["preview"] = f"Unique Color Hex-Translation Steganography detected: '{text}'"
                     return result
 
@@ -793,6 +796,7 @@ def inspect_visual_bitplanes(image_path):
             result["found"] = True
             result["type"] = "2-Bit Visual Color Image"
             result["recovered_image"] = Image.fromarray(vis_2bit)
+            result["meta"] = {"mask": 3, "scale": 85, "type": "2-Bit Visual Color Image"}
             result["preview"] = (
                 f"[+] 2-Bit Visual Image Detected! High spatial correlation (diff_h: {diff_h:.1f}, "
                 f"diff_v: {diff_v:.1f}). Visual payload spans {w}x{h} pixels."
@@ -809,6 +813,7 @@ def inspect_visual_bitplanes(image_path):
             result["found"] = True
             result["type"] = "1-Bit Visual Watermark Image"
             result["recovered_image"] = Image.fromarray(vis_1bit)
+            result["meta"] = {"mask": 1, "scale": 255, "type": "1-Bit Visual Watermark Image"}
             result["preview"] = (
                 f"[+] 1-Bit Visual Watermark Detected! Spatial structure (diff_h: {diff_1h:.1f}, "
                 f"diff_v: {diff_1v:.1f}). Visual payload spans {w}x{h} pixels."
@@ -849,27 +854,20 @@ def extract_lsb(image_path):
             img_conv = img.convert("RGBA" if has_alpha else "RGB")
             arr = np.array(img_conv, dtype=np.uint8)
 
-        # Build Candidate Extraction Pipelines
-        pipelines = []
-        # Pipeline 1: RGB Sequential
-        pipelines.append(("RGB Sequential 1-bit LSB", np.packbits(arr[:, :, :3].flatten() & 1).tobytes()))
-        # Pipeline 2: BGR Sequential (OpenCV / BMP order)
-        pipelines.append(("BGR Sequential 1-bit LSB", np.packbits(arr[:, :, :3][:, :, ::-1].flatten() & 1).tobytes()))
-        # Pipeline 3: Red Channel Only
-        pipelines.append(("Red Channel 1-bit LSB", np.packbits(arr[:, :, 0].flatten() & 1).tobytes()))
-        # Pipeline 4: Green Channel Only
-        pipelines.append(("Green Channel 1-bit LSB", np.packbits(arr[:, :, 1].flatten() & 1).tobytes()))
-        # Pipeline 5: Blue Channel Only
-        pipelines.append(("Blue Channel 1-bit LSB", np.packbits(arr[:, :, 2].flatten() & 1).tobytes()))
-
+        # Build Candidate Extraction Pipelines (pipe_id, pipe_name, conv_mode, bitstream)
+        pipelines = [
+            ("rgb_seq", "RGB Sequential 1-bit LSB", "RGB", np.packbits(arr[:, :, :3].flatten() & 1).tobytes()),
+            ("bgr_seq", "BGR Sequential 1-bit LSB", "RGB", np.packbits(arr[:, :, :3][:, :, ::-1].flatten() & 1).tobytes()),
+            ("r_only", "Red Channel 1-bit LSB", "RGB", np.packbits(arr[:, :, 0].flatten() & 1).tobytes()),
+            ("g_only", "Green Channel 1-bit LSB", "RGB", np.packbits(arr[:, :, 1].flatten() & 1).tobytes()),
+            ("b_only", "Blue Channel 1-bit LSB", "RGB", np.packbits(arr[:, :, 2].flatten() & 1).tobytes())
+        ]
         if has_alpha:
-            # Pipeline 6: RGBA Sequential
-            pipelines.append(("RGBA Sequential 1-bit LSB", np.packbits(arr.flatten() & 1).tobytes()))
-            # Pipeline 7: Alpha Channel Only
-            pipelines.append(("Alpha Channel 1-bit LSB", np.packbits(arr[:, :, 3].flatten() & 1).tobytes()))
+            pipelines.append(("rgba_seq", "RGBA Sequential 1-bit LSB", "RGBA", np.packbits(arr.flatten() & 1).tobytes()))
+            pipelines.append(("a_only", "Alpha Channel 1-bit LSB", "RGBA", np.packbits(arr[:, :, 3].flatten() & 1).tobytes()))
 
         # Evaluate Each Extraction Pipeline
-        for pipe_name, raw_bytes in pipelines:
+        for pipe_id, pipe_name, conv_mode, raw_bytes in pipelines:
             if len(raw_bytes) < 8:
                 continue
 
@@ -884,6 +882,13 @@ def extract_lsb(image_path):
                     result["payload_info"] = info
                     result["convention"] = f"{pipe_name} -> 32-bit big-endian length header ({be_len} bytes, {info['type']})"
                     result["preview"] = info["preview"]
+                    result["meta"] = {
+                        "pipe_id": pipe_id,
+                        "pipe_name": pipe_name,
+                        "mode": conv_mode,
+                        "type": "be_len",
+                        "len": be_len
+                    }
                     return result
 
             # Check 2: 32-bit Little-Endian Length Prefix
@@ -897,6 +902,13 @@ def extract_lsb(image_path):
                     result["payload_info"] = info
                     result["convention"] = f"{pipe_name} -> 32-bit little-endian length header ({le_len} bytes, {info['type']})"
                     result["preview"] = info["preview"]
+                    result["meta"] = {
+                        "pipe_id": pipe_id,
+                        "pipe_name": pipe_name,
+                        "mode": conv_mode,
+                        "type": "le_len",
+                        "len": le_len
+                    }
                     return result
 
             # Check 3: Direct File Magic Byte Carving (Offsets 0 - 64)
@@ -908,6 +920,14 @@ def extract_lsb(image_path):
                 result["payload_info"] = info
                 result["convention"] = f"{pipe_name} -> Direct magic byte carving ({info['type']})"
                 result["preview"] = info["preview"]
+                result["meta"] = {
+                    "pipe_id": pipe_id,
+                    "pipe_name": pipe_name,
+                    "mode": conv_mode,
+                    "type": "magic",
+                    "offset": carved["offset"],
+                    "len": len(carved["carved_bytes"])
+                }
                 return result
 
             # Check 4: Coherent Filtered Text / Flag Recovery
@@ -918,6 +938,13 @@ def extract_lsb(image_path):
                 result["convention"] = f"{pipe_name} -> Direct bitstream ASCII text run"
                 result["preview"] = text_preview
                 result["payload_info"] = analyze_payload(text_bytes)
+                result["meta"] = {
+                    "pipe_id": pipe_id,
+                    "pipe_name": pipe_name,
+                    "mode": conv_mode,
+                    "type": "text",
+                    "len": len(text_bytes)
+                }
                 return result
 
         result["payload_found"] = False
@@ -1002,6 +1029,7 @@ def extract_dct(image_path):
                 result["payload_info"] = info
                 result["convention"] = f"2D-DCT -> 32-bit length header ({be_len} bytes, {info['type']})"
                 result["preview"] = info["preview"]
+                result["meta"] = {"type": "be_len", "len": be_len}
                 return result
 
         # Check for magic bytes
@@ -1013,6 +1041,7 @@ def extract_dct(image_path):
             result["payload_info"] = info
             result["convention"] = f"2D-DCT -> Direct magic byte carving ({info['type']})"
             result["preview"] = info["preview"]
+            result["meta"] = {"type": "magic", "offset": carved["offset"], "len": len(carved["carved_bytes"])}
             return result
 
         # Check for coherent text
@@ -1022,6 +1051,7 @@ def extract_dct(image_path):
             result["raw_bytes"] = text_bytes
             result["preview"] = text_preview
             result["payload_info"] = analyze_payload(text_bytes)
+            result["meta"] = {"type": "text", "len": len(text_bytes)}
             return result
 
         result["payload_found"] = False
@@ -1071,6 +1101,7 @@ def extract_steghide(image_path, passphrases=("", "password", "admin", "123456",
                 result["payload_info"] = info
                 result["convention"] = f"Steghide (Passphrase: '{p}', {len(raw_bytes)} bytes, {info['type']})"
                 result["preview"] = info["preview"]
+                result["meta"] = {"passphrase": p, "len": len(raw_bytes), "ext": info["ext"], "type": info["type"]}
                 return result
 
         result["preview"] = "No Steghide payload detected with standard passphrases."
@@ -1090,7 +1121,312 @@ def extract_steghide(image_path, passphrases=("", "password", "admin", "123456",
 
 
 # =====================================================================
-# STEP 8: REPORTING & FILE EXPORT
+# STEP 8: REPRODUCIBLE EXTRACTION CODE GENERATOR
+# =====================================================================
+
+def generate_extraction_code(
+    image_path,
+    format_name,
+    lsb_result=None,
+    dct_result=None,
+    steghide_result=None,
+    overlay_result=None,
+    palette_result=None,
+    visual_result=None
+):
+    """
+    Generates a standalone, executable Python script allowing the user to
+    independently reproduce extraction of any discovered steganographic payload.
+    """
+    actions = []
+    imports = set(["import os", "import sys"])
+    base_name = os.path.splitext(os.path.basename(image_path))[0]
+    safe_abs_path = os.path.abspath(image_path)
+
+    # 1. Visual Bitplane Steganography
+    if visual_result and visual_result.get("found"):
+        imports.add("from PIL import Image")
+        imports.add("import numpy as np")
+        v_meta = visual_result.get("meta", {})
+        mask = v_meta.get("mask", 3)
+        scale = v_meta.get("scale", 85)
+        v_type = v_meta.get("type", visual_result.get("type", "Visual Image"))
+
+        func_code = f'''def extract_visual(img_path):
+    """
+    Recovers {v_type} from lower bitplanes.
+    """
+    print(f"[*] Extracting visual bitplane from: {{img_path}}")
+    img = Image.open(img_path).convert("RGB")
+    arr = np.array(img, dtype=np.uint8)
+
+    # Bitmask lower bits (mask={mask}) and stretch contrast by factor of {scale}
+    vis_arr = (arr & {mask}) * {scale}
+    out_img = Image.fromarray(vis_arr)
+
+    out_file = "{base_name}_extracted_visual.png"
+    out_img.save(out_file)
+    print(f"[+] Visual hidden image recovered and saved to: {{out_file}}")
+    return out_file'''
+        actions.append(("extract_visual", func_code))
+
+    # 2. Container Appended Overlay
+    if overlay_result and overlay_result.get("found"):
+        o_meta = overlay_result.get("meta", {})
+        offset = o_meta.get("offset", overlay_result.get("offset", 0))
+        p_info = overlay_result.get("info", {})
+        ext = p_info.get("ext", ".bin") if p_info else ".bin"
+        p_type = p_info.get("type", "Binary Data") if p_info else "Binary Data"
+
+        func_code = f'''def extract_overlay(img_path):
+    """
+    Carves appended overlay data past the container file boundary.
+    """
+    print(f"[*] Carving container overlay data from: {{img_path}}")
+    with open(img_path, "rb") as f:
+        data = f.read()
+
+    offset = {offset}
+    overlay_bytes = data[offset:]
+    out_file = "{base_name}_extracted_overlay{ext}"
+    with open(out_file, "wb") as f:
+        f.write(overlay_bytes)
+    print(f"[+] Appended overlay ({p_type}, {{len(overlay_bytes):,}} bytes) saved to: {{out_file}}")
+    return out_file'''
+        actions.append(("extract_overlay", func_code))
+
+    # 3. Palette / Color-as-Text
+    if palette_result and palette_result.get("found"):
+        imports.add("from PIL import Image")
+        p_meta = palette_result.get("meta", {})
+        source_mode = p_meta.get("source", "palette")
+
+        func_code = f'''def extract_palette(img_path):
+    """
+    Decodes hidden text stored directly in palette or unique RGB color triplets.
+    """
+    print(f"[*] Decoding palette / color-encoded steganography from: {{img_path}}")
+    img = Image.open(img_path)
+    if img.mode == "P" and img.getpalette():
+        pal = img.getpalette()
+        non_zero = [b for b in pal if b != 0]
+        text = "".join(chr(b) for b in non_zero if 32 <= b <= 126)
+    else:
+        colors = img.convert("RGB").getcolors(maxcolors=256)
+        raw_b = []
+        if colors:
+            for _, rgb in colors:
+                raw_b.extend(rgb)
+        text = "".join(chr(b) for b in raw_b if 32 <= b <= 126)
+
+    print(f"[+] Recovered text: {{text}}")
+    out_file = "{base_name}_extracted_palette.txt"
+    with open(out_file, "w", encoding="utf-8") as f:
+        f.write(text)
+    print(f"[+] Saved text to: {{out_file}}")
+    return out_file'''
+        actions.append(("extract_palette", func_code))
+
+    # 4. Spatial LSB Bitstream
+    if lsb_result and lsb_result.get("payload_found"):
+        imports.add("from PIL import Image")
+        imports.add("import numpy as np")
+        meta = lsb_result.get("meta", {})
+        pipe_id = meta.get("pipe_id", "rgb_seq")
+        pipe_name = meta.get("pipe_name", "Spatial LSB")
+        conv_mode = meta.get("mode", "RGB")
+        stego_type = meta.get("type", "magic")
+        p_info = lsb_result.get("payload_info", {})
+        ext = p_info.get("ext", ".bin") if p_info else ".bin"
+        p_type = p_info.get("type", "Binary Data") if p_info else "Binary Data"
+
+        chan_map = {
+            "rgb_seq": "arr[:, :, :3].flatten() & 1",
+            "bgr_seq": "arr[:, :, :3][:, :, ::-1].flatten() & 1",
+            "r_only": "arr[:, :, 0].flatten() & 1",
+            "g_only": "arr[:, :, 1].flatten() & 1",
+            "b_only": "arr[:, :, 2].flatten() & 1",
+            "rgba_seq": "arr.flatten() & 1",
+            "a_only": "arr[:, :, 3].flatten() & 1"
+        }
+        channel_expr = chan_map.get(pipe_id, "arr[:, :, :3].flatten() & 1")
+
+        if stego_type == "be_len":
+            slice_lines = """    # Slice via 32-bit big-endian length prefix header
+    length = int.from_bytes(bitstream[:4], byteorder="big")
+    payload = bitstream[4 : 4 + length]"""
+        elif stego_type == "le_len":
+            slice_lines = """    # Slice via 32-bit little-endian length prefix header
+    length = int.from_bytes(bitstream[:4], byteorder="little")
+    payload = bitstream[4 : 4 + length]"""
+        elif stego_type == "magic":
+            offset = meta.get("offset", 0)
+            plen = meta.get("len", len(lsb_result.get("raw_bytes") or b""))
+            slice_lines = f"""    # Slice magic-byte payload starting at offset {offset} ({plen} bytes)
+    payload = bitstream[{offset} : {offset + plen}]"""
+        elif stego_type == "text":
+            plen = meta.get("len", len(lsb_result.get("raw_bytes") or b""))
+            slice_lines = f"""    # Slice coherent text payload ({plen} bytes)
+    payload = bitstream[:{plen}]"""
+        else:
+            plen = len(lsb_result.get("raw_bytes") or b"")
+            slice_lines = f"""    payload = bitstream[:{plen}]"""
+
+        func_code = f'''def extract_lsb(img_path):
+    """
+    Extracts LSB payload ({pipe_name}, {p_type}).
+    """
+    print(f"[*] Extracting spatial LSB ({pipe_name}) from: {{img_path}}")
+    img = Image.open(img_path).convert("{conv_mode}")
+    arr = np.array(img, dtype=np.uint8)
+
+    # Demux bitstream
+    bits = {channel_expr}
+    bitstream = np.packbits(bits).tobytes()
+
+{slice_lines}
+
+    out_file = "{base_name}_extracted_lsb{ext}"
+    with open(out_file, "wb") as f:
+        f.write(payload)
+    print(f"[+] LSB payload ({p_type}, {{len(payload):,}} bytes) saved to: {{out_file}}")
+    return out_file'''
+        actions.append(("extract_lsb", func_code))
+
+    # 5. DCT Coefficients (JPEG)
+    if dct_result and dct_result.get("payload_found"):
+        imports.add("from PIL import Image")
+        imports.add("import numpy as np")
+        imports.add("from scipy.fftpack import dct")
+        d_meta = dct_result.get("meta", {})
+        d_type = d_meta.get("type", "magic")
+        p_info = dct_result.get("payload_info", {})
+        ext = p_info.get("ext", ".bin") if p_info else ".bin"
+        p_type = p_info.get("type", "Binary Data") if p_info else "Binary Data"
+
+        if d_type == "be_len":
+            slice_lines = """    # Slice via 32-bit big-endian length prefix header
+    length = int.from_bytes(bitstream[:4], byteorder="big")
+    payload = bitstream[4 : 4 + length]"""
+        elif d_type == "magic":
+            offset = d_meta.get("offset", 0)
+            plen = d_meta.get("len", len(dct_result.get("raw_bytes") or b""))
+            slice_lines = f"""    # Slice magic-byte payload starting at offset {offset} ({plen} bytes)
+    payload = bitstream[{offset} : {offset + plen}]"""
+        else:
+            plen = d_meta.get("len", len(dct_result.get("raw_bytes") or b""))
+            slice_lines = f"""    payload = bitstream[:{plen}]"""
+
+        func_code = f'''def extract_dct(img_path):
+    """
+    Extracts LSBs from 2D-DCT AC frequency coefficients.
+    """
+    print(f"[*] Extracting DCT AC frequency LSBs from: {{img_path}}")
+    img = Image.open(img_path).convert("L")
+    img_arr = np.array(img, dtype=np.float32)
+
+    h_blocks = img_arr.shape[0] // 8
+    w_blocks = img_arr.shape[1] // 8
+
+    mid_freq_indices = [
+        (0, 1), (1, 0), (2, 0), (1, 1), (0, 2),
+        (0, 3), (1, 2), (2, 1), (3, 0), (4, 0),
+        (3, 1), (2, 2), (1, 3), (0, 4), (1, 4),
+        (2, 3), (3, 2), (4, 1), (5, 0), (4, 2)
+    ]
+
+    extracted_bits = []
+    for r in range(h_blocks):
+        for c in range(w_blocks):
+            block = img_arr[r * 8 : (r + 1) * 8, c * 8 : (c + 1) * 8]
+            dct_block = dct(dct(block, axis=0, norm="ortho"), axis=1, norm="ortho")
+            for row_idx, col_idx in mid_freq_indices:
+                coeff = dct_block[row_idx, col_idx]
+                quantized_val = int(np.round(coeff))
+                if quantized_val != 0:
+                    extracted_bits.append(quantized_val & 1)
+
+    bitstream = np.packbits(np.array(extracted_bits, dtype=np.uint8)).tobytes()
+
+{slice_lines}
+
+    out_file = "{base_name}_extracted_dct{ext}"
+    with open(out_file, "wb") as f:
+        f.write(payload)
+    print(f"[+] DCT payload ({p_type}, {{len(payload):,}} bytes) saved to: {{out_file}}")
+    return out_file'''
+        actions.append(("extract_dct", func_code))
+
+    # 6. Steghide
+    if steghide_result and steghide_result.get("payload_found"):
+        imports.add("import subprocess")
+        s_meta = steghide_result.get("meta", {})
+        passphrase = s_meta.get("passphrase", "")
+        p_info = steghide_result.get("payload_info", {})
+        ext = p_info.get("ext", ".bin") if p_info else ".bin"
+
+        func_code = f'''def extract_steghide(img_path):
+    """
+    Extracts Steghide steganographic payload using passphrase.
+    """
+    print(f"[*] Extracting Steghide payload from: {{img_path}}")
+    passphrase = {repr(passphrase)}
+    out_file = "{base_name}_extracted_steghide{ext}"
+    cmd = ["steghide", "extract", "-sf", img_path, "-p", passphrase, "-xf", out_file, "-f"]
+    try:
+        subprocess.run(cmd, check=True)
+        print(f"[+] Steghide payload extracted to: {{out_file}}")
+        return out_file
+    except Exception as e:
+        print(f"[-] Steghide extraction failed: {{e}}")
+        return None'''
+        actions.append(("extract_steghide", func_code))
+
+    if not actions:
+        return None
+
+    # Assemble complete standalone script
+    sorted_imports = sorted(list(imports), key=lambda x: (not x.startswith("import os"), not x.startswith("import sys"), x))
+    imports_str = "\n".join(sorted_imports)
+    functions_str = "\n\n".join(code for _, code in actions)
+    calls_str = "\n    ".join(f"{name}(target)" for name, _ in actions)
+
+    script_template = f'''#!/usr/bin/env python3
+"""
+PixelPry Standalone Forensic Extraction Script
+Generated automatically for: {os.path.basename(image_path)}
+Format: {format_name}
+"""
+
+{imports_str}
+
+TARGET_IMAGE = r"{safe_abs_path}"
+
+{functions_str}
+
+def main():
+    target = sys.argv[1] if len(sys.argv) > 1 else TARGET_IMAGE
+    if not os.path.isfile(target):
+        print(f"[-] Target image not found: {{target}}")
+        sys.exit(1)
+
+    print("=" * 60)
+    print(" PixelPry Standalone Steganography Extractor")
+    print("=" * 60)
+    print(f"[*] Target: {{target}}")
+
+    {calls_str}
+
+    print("\\n[+] Extraction finished successfully!")
+
+if __name__ == "__main__":
+    main()
+'''
+    return script_template
+
+
+# =====================================================================
+# STEP 9: REPORTING & FILE EXPORT
 # =====================================================================
 
 def print_report(
@@ -1235,7 +1571,8 @@ def print_report(
             except Exception as e:
                 print(f"[-] Verification error: {e}")
 
-    # File Export (--save <output_dir>)
+    # File Export (--save <output_dir>) or Code Generation (when skipped)
+    generated_code = None
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
         base = os.path.splitext(os.path.basename(image_path))[0]
@@ -1247,6 +1584,17 @@ def print_report(
             visual_result["recovered_image"].save(vis_path)
             print(f"[+] Saved visual extracted image to: {vis_path}")
             saved_count += 1
+
+        # Save Palette Text
+        if palette_result and palette_result.get("found") and palette_result.get("word"):
+            pal_path = os.path.join(output_dir, f"{base}_palette_text.txt")
+            try:
+                with open(pal_path, "w", encoding="utf-8") as f:
+                    f.write(palette_result["word"])
+                print(f"[+] Saved palette text to: {pal_path}")
+                saved_count += 1
+            except Exception as e:
+                print(f"[-] Failed to save {pal_path}: {e}")
 
         # Save Binary/Text Payloads
         for p_bytes, p_info, suffix in all_payloads:
@@ -1262,6 +1610,24 @@ def print_report(
 
         if saved_count == 0:
             print(f"[*] No extracted payloads were available to save in: {output_dir}")
+    else:
+        generated_code = generate_extraction_code(
+            image_path,
+            format_name,
+            lsb_result=lsb_result,
+            dct_result=dct_result,
+            steghide_result=steghide_result,
+            overlay_result=overlay_result,
+            palette_result=palette_result,
+            visual_result=visual_result
+        )
+        if generated_code:
+            print("\n" + sep)
+            print(" REPRODUCIBLE PYTHON EXTRACTION CODE")
+            print(" (Destination folder was skipped - run this code to obtain the result)")
+            print(sep)
+            print(generated_code.strip())
+            print(sep)
 
     # Forensic Notes
     print("\n" + sep)
@@ -1276,9 +1642,11 @@ def print_report(
     print("   filtered out using Shannon diversity metrics.")
     print(sep + "\n")
 
+    return generated_code
+
 
 # =====================================================================
-# STEP 9: CLI & INTERACTIVE SHELL LAUNCHER
+# STEP 10: CLI & INTERACTIVE SHELL LAUNCHER
 # =====================================================================
 
 def is_launched_from_explorer():
@@ -1396,7 +1764,7 @@ def main():
             steghide_result = extract_steghide(image_path)
 
         # 8. Report & Export
-        print_report(
+        gen_code = print_report(
             image_path,
             format_name,
             lsb_result,
@@ -1409,6 +1777,19 @@ def main():
             verify_file=verify_file,
             output_dir=output_dir
         )
+
+        # Interactive prompt to save reproducible python extraction code
+        if not output_dir and gen_code and (interactive_mode or from_explorer):
+            try:
+                save_code_prompt = input("Save this extraction code to a Python script (.py)? (y/n, default n): ").strip().lower()
+                if save_code_prompt in ("y", "yes"):
+                    base = os.path.splitext(os.path.basename(image_path))[0]
+                    script_filename = f"{base}_extract.py"
+                    with open(script_filename, "w", encoding="utf-8") as sf:
+                        sf.write(gen_code)
+                    print(f"[+] Saved reproducible extraction script to: {os.path.abspath(script_filename)}")
+            except (EOFError, KeyboardInterrupt):
+                pass
 
     except KeyboardInterrupt:
         print("\n[!] Operation cancelled by user.")

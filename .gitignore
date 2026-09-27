@@ -10,6 +10,8 @@ dist/
 # Temporary and build scratch
 *.tmp
 *.log
+*.zip
+PixelPry_Clean_Upload/
 history_temp.db
 
 # Virtual environments

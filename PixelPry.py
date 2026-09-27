@@ -16,6 +16,8 @@ ALL types of hidden data, including:
 
 import sys
 import os
+import time
+import stat
 import string
 import struct
 import json
@@ -1126,8 +1128,103 @@ def extract_steghide(image_path, passphrases=("", "password", "admin", "123456",
 
 
 # =====================================================================
-# STEP 8: REPRODUCIBLE EXTRACTION CODE GENERATOR
+# STEP 8: PERMISSION-SAFE FILE WRITERS & EXTRACTION CODE GENERATOR
 # =====================================================================
+
+def safe_write_file(target_path, content, mode="wb", encoding=None):
+    """
+    Safely writes binary or text data, automatically handling Windows file locks,
+    read-only attributes, and PermissionError (Errno 13). If the target file is locked
+    by another application (e.g. VS Code, an editor, or Photos), it falls back to an
+    uncolliding timestamped path.
+    """
+    target_path = os.path.abspath(target_path)
+    parent_dir = os.path.dirname(target_path)
+    if parent_dir:
+        try:
+            os.makedirs(parent_dir, exist_ok=True)
+        except Exception:
+            parent_dir = os.getcwd()
+            target_path = os.path.join(parent_dir, os.path.basename(target_path))
+
+    if os.path.exists(target_path):
+        try:
+            os.chmod(target_path, stat.S_IWRITE | stat.S_IREAD)
+        except Exception:
+            pass
+
+    try:
+        if "b" in mode:
+            with open(target_path, mode) as f:
+                f.write(content)
+        else:
+            with open(target_path, mode, encoding=encoding or "utf-8") as f:
+                f.write(content)
+        return target_path
+    except (PermissionError, OSError):
+        dir_name, file_name = os.path.split(target_path)
+        base, ext = os.path.splitext(file_name)
+        timestamp = int(time.time())
+        candidates = [
+            os.path.join(dir_name, f"{base}_{timestamp}{ext}"),
+            os.path.join(dir_name, f"{base}_new{ext}"),
+            os.path.join(os.path.expanduser("~"), f"{base}_{timestamp}{ext}"),
+        ]
+        for alt_path in candidates:
+            try:
+                if "b" in mode:
+                    with open(alt_path, mode) as f:
+                        f.write(content)
+                else:
+                    with open(alt_path, mode, encoding=encoding or "utf-8") as f:
+                        f.write(content)
+                print(f"[!] Notice: '{target_path}' is locked by another program or restricted. Output safely saved to: '{alt_path}'")
+                return alt_path
+            except (PermissionError, OSError):
+                continue
+        raise PermissionError(f"Permission denied: Unable to write '{target_path}'. Please close any program using this file.")
+
+
+def safe_save_image(img, target_path):
+    """
+    Safely saves an image file, automatically resolving Windows file locks and PermissionError.
+    """
+    target_path = os.path.abspath(target_path)
+    parent_dir = os.path.dirname(target_path)
+    if parent_dir:
+        try:
+            os.makedirs(parent_dir, exist_ok=True)
+        except Exception:
+            parent_dir = os.getcwd()
+            target_path = os.path.join(parent_dir, os.path.basename(target_path))
+
+    if os.path.exists(target_path):
+        try:
+            os.chmod(target_path, stat.S_IWRITE | stat.S_IREAD)
+        except Exception:
+            pass
+
+    try:
+        img.save(target_path)
+        return target_path
+    except (PermissionError, OSError):
+        dir_name, file_name = os.path.split(target_path)
+        base, ext = os.path.splitext(file_name)
+        timestamp = int(time.time())
+        candidates = [
+            os.path.join(dir_name, f"{base}_{timestamp}.png"),
+            os.path.join(dir_name, f"{base}_new.png"),
+            os.path.join(os.path.expanduser("~"), f"{base}_{timestamp}.png"),
+        ]
+        for alt_path in candidates:
+            try:
+                img.save(alt_path)
+                print(f"[!] Notice: '{target_path}' is locked by an image viewer. Image safely saved to: '{alt_path}'")
+                return alt_path
+            except (PermissionError, OSError):
+                continue
+        raise PermissionError(f"Permission denied: Unable to save image '{target_path}'. Please close any viewer using this file.")
+
 
 def generate_extraction_code(
     image_path,
@@ -1171,7 +1268,7 @@ def generate_extraction_code(
     out_img = Image.fromarray(vis_arr)
 
     out_file = os.path.join(SCRIPT_DIR, "{base_name}_extracted_visual.png")
-    out_img.save(out_file)
+    out_file = _safe_save_image(out_img, out_file)
 
     print("\\n" + "=" * 60)
     print(" [+] HIDDEN INFORMATION REVEALED: VISUAL BITPLANE IMAGE")
@@ -1203,8 +1300,7 @@ def generate_extraction_code(
     offset = {offset}
     overlay_bytes = data[offset:]
     out_file = os.path.join(SCRIPT_DIR, "{base_name}_extracted_overlay{ext}")
-    with open(out_file, "wb") as f:
-        f.write(overlay_bytes)
+    out_file = _safe_write_file(out_file, overlay_bytes, mode="wb")
 
     preview_str = ""
     try:
@@ -1258,8 +1354,7 @@ def generate_extraction_code(
             text = "".join(chr(b) for b in chunk_data if 32 <= b <= 126)
 
     out_file = os.path.join(SCRIPT_DIR, "{base_name}_extracted_palette.txt")
-    with open(out_file, "w", encoding="utf-8") as f:
-        f.write(text)
+    out_file = _safe_write_file(out_file, text, mode="w", encoding="utf-8")
 
     print("\\n" + "=" * 60)
     print(" [+] HIDDEN INFORMATION REVEALED: DECODED SECRET MESSAGE")
@@ -1330,8 +1425,7 @@ def generate_extraction_code(
 {slice_lines}
 
     out_file = os.path.join(SCRIPT_DIR, "{base_name}_extracted_lsb{ext}")
-    with open(out_file, "wb") as f:
-        f.write(payload)
+    out_file = _safe_write_file(out_file, payload, mode="wb")
 
     msg_preview = ""
     try:
@@ -1409,8 +1503,7 @@ def generate_extraction_code(
 {slice_lines}
 
     out_file = os.path.join(SCRIPT_DIR, "{base_name}_extracted_dct{ext}")
-    with open(out_file, "wb") as f:
-        f.write(payload)
+    out_file = _safe_write_file(out_file, payload, mode="wb")
 
     print("\\n" + "=" * 60)
     print(" [+] HIDDEN INFORMATION REVEALED: DCT FREQUENCY PAYLOAD")
@@ -1471,21 +1564,23 @@ def _ensure_dependencies(*packages):
         import subprocess
         installed = False
         try:
-            subprocess.check_call(["uv", "pip", "install", "--break-system-packages", "--python", sys.executable, *missing])
-            installed = True
+            res = subprocess.run(["uv", "pip", "install", "--user", *missing], capture_output=True, text=True)
+            if res.returncode == 0:
+                installed = True
         except Exception:
             pass
         if not installed:
-            for flags in [["--break-system-packages"], ["--user"], []]:
+            for flags in [["--user"], ["--break-system-packages"], []]:
                 try:
-                    subprocess.check_call([sys.executable, "-m", "pip", "install", *flags, *missing])
-                    installed = True
-                    break
+                    res = subprocess.run([sys.executable, "-m", "pip", "install", *flags, *missing], capture_output=True, text=True)
+                    if res.returncode == 0:
+                        installed = True
+                        break
                 except Exception:
                     pass
         if not installed:
             print(f"[-] Could not auto-install: {{missing}}")
-            print(f"[!] Please run: pip install {{' '.join(missing)}}")
+            print(f"[!] Please run: python -m pip install --user {{' '.join(missing)}}")
             sys.exit(1)
         print("[+] Dependencies installed successfully!\\n")
 
@@ -1505,15 +1600,111 @@ _ensure_dependencies({pkg_list_str})
     functions_str = "\n\n".join(code for _, code in actions)
     calls_str = "\n    ".join(f"{name}(target)" for name, _ in actions)
 
+    safe_writers_code = '''# Permission-safe and file-lock resilient output writers
+def _safe_write_file(target_path, content, mode="wb", encoding=None):
+    target_path = os.path.abspath(target_path)
+    parent_dir = os.path.dirname(target_path)
+    if parent_dir:
+        try:
+            os.makedirs(parent_dir, exist_ok=True)
+        except Exception:
+            parent_dir = os.getcwd()
+            target_path = os.path.join(parent_dir, os.path.basename(target_path))
+
+    if os.path.exists(target_path):
+        try:
+            os.chmod(target_path, stat.S_IWRITE | stat.S_IREAD)
+        except Exception:
+            pass
+
+    try:
+        if "b" in mode:
+            with open(target_path, mode) as f:
+                f.write(content)
+        else:
+            with open(target_path, mode, encoding=encoding or "utf-8") as f:
+                f.write(content)
+        return target_path
+    except (PermissionError, OSError):
+        dir_name, file_name = os.path.split(target_path)
+        base, ext = os.path.splitext(file_name)
+        timestamp = int(time.time())
+        candidates = [
+            os.path.join(dir_name, f"{base}_{timestamp}{ext}"),
+            os.path.join(dir_name, f"{base}_new{ext}"),
+            os.path.join(os.path.expanduser("~"), f"{base}_{timestamp}{ext}"),
+        ]
+        for alt_path in candidates:
+            try:
+                if "b" in mode:
+                    with open(alt_path, mode) as f:
+                        f.write(content)
+                else:
+                    with open(alt_path, mode, encoding=encoding or "utf-8") as f:
+                        f.write(content)
+                print(f"[!] Notice: '{target_path}' is locked by another application (e.g. VS Code).")
+                print(f"[+] Output safely written to: '{alt_path}'")
+                return alt_path
+            except (PermissionError, OSError):
+                continue
+        raise PermissionError(f"Permission denied: Unable to write to '{target_path}'. Please close any program using this file.")
+
+
+def _safe_save_image(img, target_path):
+    target_path = os.path.abspath(target_path)
+    parent_dir = os.path.dirname(target_path)
+    if parent_dir:
+        try:
+            os.makedirs(parent_dir, exist_ok=True)
+        except Exception:
+            parent_dir = os.getcwd()
+            target_path = os.path.join(parent_dir, os.path.basename(target_path))
+
+    if os.path.exists(target_path):
+        try:
+            os.chmod(target_path, stat.S_IWRITE | stat.S_IREAD)
+        except Exception:
+            pass
+
+    try:
+        img.save(target_path)
+        return target_path
+    except (PermissionError, OSError):
+        dir_name, file_name = os.path.split(target_path)
+        base, ext = os.path.splitext(file_name)
+        timestamp = int(time.time())
+        candidates = [
+            os.path.join(dir_name, f"{base}_{timestamp}.png"),
+            os.path.join(dir_name, f"{base}_new.png"),
+            os.path.join(os.path.expanduser("~"), f"{base}_{timestamp}.png"),
+        ]
+        for alt_path in candidates:
+            try:
+                img.save(alt_path)
+                print(f"[!] Notice: '{target_path}' is locked by an image viewer (e.g. VS Code / Photos).")
+                print(f"[+] Image safely saved to: '{alt_path}'")
+                return alt_path
+            except (PermissionError, OSError):
+                continue
+        raise PermissionError(f"Permission denied: Unable to save image '{target_path}'. Please close any image viewer using this file.")'''
+
     script_template = f'''#!/usr/bin/env python3
 """
 PixelPry Standalone Forensic Extraction Script
 Generated automatically for: {os.path.basename(image_path)}
 Format: {format_name}
+
+HOW TO RUN IN VS CODE:
+  * In the VS Code Terminal, run:
+      python {base_name}_extract.py
+  * Or right-click this file and choose: 'Run Python' -> 'Run Python File in Terminal'
+  (Avoid running './{base_name}_extract.py' directly in bash/WSL to prevent 'Permission denied')
 """
 
 import os
 import sys
+import time
+import stat
 
 {dep_check_code}
 {imports_str}
@@ -1523,6 +1714,8 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals
 
 # Default path to target image (checks absolute path, then alongside script)
 TARGET_IMAGE = r"{safe_abs_path}"
+
+{safe_writers_code}
 
 {functions_str}
 
@@ -1724,17 +1917,19 @@ def print_report(
         # Save Visual Bitplane Image
         if visual_result and visual_result.get("recovered_image"):
             vis_path = os.path.join(output_dir, f"{base}_visual_extracted.png")
-            visual_result["recovered_image"].save(vis_path)
-            print(f"[+] Saved visual extracted image to: {vis_path}")
-            saved_count += 1
+            try:
+                saved_path = safe_save_image(visual_result["recovered_image"], vis_path)
+                print(f"[+] Saved visual extracted image to: {saved_path}")
+                saved_count += 1
+            except Exception as e:
+                print(f"[-] Failed to save {vis_path}: {e}")
 
         # Save Palette Text
         if palette_result and palette_result.get("found") and palette_result.get("word"):
             pal_path = os.path.join(output_dir, f"{base}_palette_text.txt")
             try:
-                with open(pal_path, "w", encoding="utf-8") as f:
-                    f.write(palette_result["word"])
-                print(f"[+] Saved palette text to: {pal_path}")
+                saved_path = safe_write_file(pal_path, palette_result["word"], mode="w", encoding="utf-8")
+                print(f"[+] Saved palette text to: {saved_path}")
                 saved_count += 1
             except Exception as e:
                 print(f"[-] Failed to save {pal_path}: {e}")
@@ -1744,9 +1939,8 @@ def print_report(
             ext = p_info["ext"] if p_info else ".bin"
             out_file = os.path.join(output_dir, f"{base}_{suffix}{ext}")
             try:
-                with open(out_file, "wb") as f:
-                    f.write(p_bytes)
-                print(f"[+] Saved extracted payload to: {out_file} ({len(p_bytes):,} bytes, {p_info['type'] if p_info else 'Binary'})")
+                saved_path = safe_write_file(out_file, p_bytes, mode="wb")
+                print(f"[+] Saved extracted payload to: {saved_path} ({len(p_bytes):,} bytes, {p_info['type'] if p_info else 'Binary'})")
                 saved_count += 1
             except Exception as e:
                 print(f"[-] Failed to save {out_file}: {e}")
@@ -1957,9 +2151,12 @@ def main():
                 if save_code_prompt in ("y", "yes"):
                     base = os.path.splitext(os.path.basename(image_path))[0]
                     script_filename = f"{base}_extract.py"
-                    with open(script_filename, "w", encoding="utf-8") as sf:
-                        sf.write(gen_code)
-                    print(f"[+] Saved reproducible extraction script to: {os.path.abspath(script_filename)}")
+                    saved_path = safe_write_file(script_filename, gen_code, mode="w", encoding="utf-8")
+                    try:
+                        os.chmod(saved_path, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+                    except Exception:
+                        pass
+                    print(f"[+] Saved reproducible extraction script to: {os.path.abspath(saved_path)}")
             except (EOFError, KeyboardInterrupt):
                 pass
 

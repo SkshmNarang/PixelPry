@@ -1,10 +1,10 @@
-# Steganography Analysis, Extraction & Forensic Recovery Suite
+# PixelPry: Steganography Analysis, Extraction & Forensic Recovery Suite
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Cybersecurity: Steganography](https://img.shields.io/badge/Domain-Cybersecurity%20%7C%20Stego-orange.svg)]()
 
-A modular digital image steganography forensic analysis, extraction, and file repair framework. Designed for security researchers, CTF competitors, and forensic analysts to automatically identify image formats via magic bytes, analyze spatial-domain LSB bitstreams, calculate transform-domain 2D-DCT AC frequency coefficients, integrate Steghide Rijndael-128 extraction, and repair corrupted image chunk structures.
+**PixelPry** is a modular digital image steganography forensic analysis, extraction, and file repair framework. Designed for security researchers, CTF competitors, and forensic analysts to automatically identify image formats via magic bytes, analyze spatial-domain LSB bitstreams, calculate transform-domain 2D-DCT AC frequency coefficients, integrate Steghide Rijndael-128 extraction, and repair corrupted image chunk structures.
 
 ---
 
@@ -51,7 +51,8 @@ A modular digital image steganography forensic analysis, extraction, and file re
 
 ```text
 ├── prototype1/
-│   └── stego_extract.py       # Core forensic analysis & extraction tool
+│   └── PixelPry.py            # Core forensic analysis & extraction tool
+├── PixelPry.py                # Standalone root CLI runner
 ├── wiki/                      # Complete forensic wiki & true-format payloads
 │   ├── README.md              # Master verification registry
 │   ├── challenge_flag.png     # Isolated high-res image of the recovered flag banner
@@ -90,17 +91,17 @@ pip install pillow numpy scipy
 ### 1. Basic Analysis
 Run the primary script on any target image:
 ```bash
-python prototype1/stego_extract.py path/to/image.png
+python prototype1/PixelPry.py path/to/image.png
 ```
 
 ### 2. Verify Against a Reference Payload
 ```bash
-python prototype1/stego_extract.py path/to/image.png --verify secret.txt
+python prototype1/PixelPry.py path/to/image.png --verify secret.txt
 ```
 
 ### 3. Automatically Extract & Save Discovered Payloads
 ```bash
-python prototype1/stego_extract.py path/to/image.png --save output_directory/
+python prototype1/PixelPry.py path/to/image.png --save output_directory/
 ```
 
 ---
@@ -115,7 +116,7 @@ python prototype1/stego_extract.py path/to/image.png --save output_directory/
 
 ### Forensic Diagnosis & Solution
 1. **Initial Execution Failure:**
-   Running `prototype1/stego_extract.py` reported `cannot identify image file 'challenge.png'` because standard PNG decoders (libpng/Pillow) rejected the corrupted structure.
+   Running `prototype1/PixelPry.py` reported `cannot identify image file 'challenge.png'` because standard PNG decoders (libpng/Pillow) rejected the corrupted structure.
 2. **Anomaly 1 — IHDR Dimension Tampering (Height Truncation):**
    - The file recorded an IHDR CRC of `0xcad1ced6`, but the dimensions were set to $724 \times 800$ (which produces CRC `0x8c3b621c`).
    - Brute-forcing the dimension space matching CRC `0xcad1ced6` revealed the true height is **$850$ pixels**. The author cropped 50 rows to hide the flag banner outside the canvas.

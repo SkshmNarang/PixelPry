@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-stego_extract.py - Heuristic Image Steganography Analysis & Extraction Tool
+PixelPry.py - Heuristic Image Steganography Analysis & Extraction Tool
 
 Performs format identification via magic bytes, spatial-domain LSB extraction
 for uncompressed/lossless formats (PNG, BMP), transform-domain DCT coefficient

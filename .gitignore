@@ -12,6 +12,7 @@ dist/
 *.log
 *.zip
 PixelPry_Clean_Upload/
+push_to_github.bat
 history_temp.db
 
 # Virtual environments

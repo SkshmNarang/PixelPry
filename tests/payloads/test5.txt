@@ -1,0 +1,5 @@
+Foundations of Computation and Logic
+
+The conceptual blueprint of modern computing emerged long before silicon microprocessors existed. Visionaries like Ada Lovelace recognized that analytical engines could manipulate symbols according to mathematical rules, extending far beyond simple arithmetic calculations.
+
+Decades later, Alan Turing formalized the universal computing machine, defining the theoretical boundaries of computability and laying the groundwork for algorithmic reasoning and automated intelligence.

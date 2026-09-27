@@ -6,13 +6,10 @@ __pycache__/
 # PyInstaller build artifacts
 build/
 dist/
-*.spec
 
-# Temporary and test files
-test*.txt
-test*.bin
-out/
-hide/
+# Temporary and build scratch
+*.tmp
+*.log
 history_temp.db
 
 # Virtual environments

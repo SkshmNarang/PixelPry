@@ -636,73 +636,136 @@ def print_report(image_path, format_name, lsb_result, dct_result, steghide_resul
     print(separator + "\n")
 
 
+def is_launched_from_explorer():
+    """
+    Detects if the process was launched directly from Windows Explorer
+    (e.g., double-clicked or file dragged onto the .exe) rather than an existing shell.
+    """
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        arr = (ctypes.c_uint * 16)()
+        count = ctypes.windll.kernel32.GetConsoleProcessList(arr, 16)
+        # When double-clicked or dragged in Explorer, Windows creates a temporary console
+        # with only 1 or 2 processes attached (bootloader + payload).
+        return count <= 2
+    except Exception:
+        return False
+
+
 def main():
     """
-    Main entry point for command-line execution.
+    Main entry point for command-line and interactive execution.
     """
-    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
-        print("PixelPry - Heuristic Image Steganography Analysis & Extraction Tool")
-        print(f"Usage: python {os.path.basename(sys.argv[0])} <image_file_path> [--verify <reference_file>] [--save <output_dir>]")
-        sys.exit(0 if len(sys.argv) >= 2 and sys.argv[1] in ("-h", "--help") else 1)
+    interactive_mode = False
+    from_explorer = is_launched_from_explorer()
 
-    image_path = sys.argv[1]
+    try:
+        # Help flags
+        if len(sys.argv) >= 2 and sys.argv[1] in ("-h", "--help"):
+            print("PixelPry - Heuristic Image Steganography Analysis & Extraction Tool")
+            print(f"Usage: {os.path.basename(sys.argv[0])} <image_file_path> [--verify <reference_file>] [--save <output_dir>]")
+            if from_explorer:
+                input("\nPress Enter to exit...")
+            sys.exit(0)
 
-    # Parse optional CLI flags
-    verify_file = None
-    output_dir = None
+        verify_file = None
+        output_dir = None
+        image_path = None
 
-    args = sys.argv[2:]
-    idx = 0
-    while idx < len(args):
-        if args[idx] == "--verify" and idx + 1 < len(args):
-            verify_file = args[idx + 1]
-            idx += 2
-        elif args[idx] == "--save" and idx + 1 < len(args):
-            output_dir = args[idx + 1]
-            idx += 2
+        if len(sys.argv) >= 2:
+            image_path = sys.argv[1].strip('"').strip("'")
+            # Parse optional CLI flags
+            args = sys.argv[2:]
+            idx = 0
+            while idx < len(args):
+                if args[idx] == "--verify" and idx + 1 < len(args):
+                    verify_file = args[idx + 1].strip('"').strip("'")
+                    idx += 2
+                elif args[idx] == "--save" and idx + 1 < len(args):
+                    output_dir = args[idx + 1].strip('"').strip("'")
+                    idx += 2
+                else:
+                    idx += 1
         else:
-            idx += 1
+            # Interactive mode (double-clicked or executed without arguments)
+            interactive_mode = True
+            print("=" * 70)
+            print("        PixelPry - Digital Image Steganography & Forensics")
+            print("=" * 70)
+            print("\nUsage tips:")
+            print(" - Drag and drop an image file directly into this window, or")
+            print(" - Type or paste the path to an image file.\n")
 
-    # Verify target file existence
-    if not os.path.isfile(image_path):
-        print(f"[-] Error: File not found: '{image_path}'")
-        sys.exit(1)
+            user_input = input("Enter image file path: ").strip().strip('"').strip("'")
+            if not user_input:
+                print("[-] No file provided. Exiting.")
+                input("\nPress Enter to exit...")
+                sys.exit(0)
+            image_path = user_input
 
-    # STEP 1: Identify image format via magic bytes
-    format_name = identify_format(image_path)
-    if not format_name:
-        print(f"[-] Error: Unrecognized or corrupted image file: '{image_path}'")
-        sys.exit(1)
+            save_prompt = input("Save extracted payloads to directory? (Leave blank to skip, or enter folder): ").strip().strip('"').strip("'")
+            if save_prompt:
+                output_dir = save_prompt
 
-    # Initialize results
-    lsb_result = {
-        "applicable": False,
-        "payload_found": False,
-        "convention": "N/A",
-        "preview": "Not applicable to this image format."
-    }
-    dct_result = {
-        "applicable": False,
-        "payload_found": False,
-        "convention": "N/A",
-        "preview": "Not applicable to this image format."
-    }
-    steghide_result = None
+        # Verify target file existence
+        if not os.path.isfile(image_path):
+            print(f"[-] Error: File not found: '{image_path}'")
+            if interactive_mode or from_explorer:
+                input("\nPress Enter to exit...")
+            sys.exit(1)
 
-    # STEP 2: Spatial LSB extraction (applies to PNG, BMP, and spatial formats)
-    if format_name in ("PNG", "BMP"):
-        lsb_result = extract_lsb(image_path)
+        # STEP 1: Identify image format via magic bytes
+        format_name = identify_format(image_path)
+        if not format_name:
+            print(f"[-] Error: Unrecognized or corrupted image file: '{image_path}'")
+            if interactive_mode or from_explorer:
+                input("\nPress Enter to exit...")
+            sys.exit(1)
 
-    # STEP 3: Transform DCT extraction (applies to JPEG format)
-    if format_name in ("JPEG", "JPG"):
-        dct_result = extract_dct(image_path)
+        # Initialize results
+        lsb_result = {
+            "applicable": False,
+            "payload_found": False,
+            "convention": "N/A",
+            "preview": "Not applicable to this image format."
+        }
+        dct_result = {
+            "applicable": False,
+            "payload_found": False,
+            "convention": "N/A",
+            "preview": "Not applicable to this image format."
+        }
+        steghide_result = None
 
-    # STEP 3b: Steghide extraction (for JPEG & BMP)
-    if format_name in ("JPEG", "JPG", "BMP"):
-        steghide_result = extract_steghide(image_path, passphrase="")
+        # STEP 2: Spatial LSB extraction (applies to PNG, BMP, and spatial formats)
+        if format_name in ("PNG", "BMP"):
+            lsb_result = extract_lsb(image_path)
 
-    # STEP 4: Print the structured report
-    print_report(image_path, format_name, lsb_result, dct_result, steghide_result, verify_file, output_dir)
+        # STEP 3: Transform DCT extraction (applies to JPEG format)
+        if format_name in ("JPEG", "JPG"):
+            dct_result = extract_dct(image_path)
+
+        # STEP 3b: Steghide extraction (for JPEG & BMP)
+        if format_name in ("JPEG", "JPG", "BMP"):
+            steghide_result = extract_steghide(image_path, passphrase="")
+
+        # STEP 4: Print the structured report
+        print_report(image_path, format_name, lsb_result, dct_result, steghide_result, verify_file, output_dir)
+
+    except KeyboardInterrupt:
+        print("\n[!] Operation cancelled by user.")
+    except Exception as e:
+        import traceback
+        print(f"\n[-] Unexpected Error: {e}")
+        traceback.print_exc()
+    finally:
+        if interactive_mode or from_explorer:
+            try:
+                input("\nScan completed. Press Enter to exit...")
+            except (EOFError, KeyboardInterrupt):
+                pass
 
 
 if __name__ == "__main__":

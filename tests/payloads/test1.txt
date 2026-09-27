@@ -1,0 +1,5 @@
+The Art of Steganography
+
+Steganography is the practice of concealing a message, file, or image within another message, file, or image. Unlike cryptography, which conceals the content of a message, steganography conceals the very fact that a secret communication is taking place.
+
+Throughout history, messengers have used invisible ink, microdots, and hidden channels in ordinary text. In the digital era, steganography embeds covert bits inside images, audio files, and video streams with zero perceptible distortion to human senses.

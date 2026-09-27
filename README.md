@@ -101,7 +101,7 @@ PixelPry/
 ### Installation
 Clone the repository and install the dependencies:
 ```bash
-git clone https://github.com/sakshmnarang/PixelPry.git
+git clone https://github.com/skshmnarang/PixelPry.git
 cd PixelPry
 pip install -r requirements.txt
 ```

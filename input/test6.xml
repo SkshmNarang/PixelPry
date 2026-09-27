@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ProvenanceManifest xmlns="urn:stego:provenance:v1">
+    <AssetID>ASSET-7729-DELTA</AssetID>
+    <WatermarkSignature>d8e8fca2dc0f896fd7cb4cb0031ba249</WatermarkSignature>
+    <Timestamp>2026-09-27T20:20:00Z</Timestamp>
+    <Owner>Digital Rights Protection Consortium</Owner>
+    <IntegrityHash algorithm="SHA256">7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069</IntegrityHash>
+</ProvenanceManifest>

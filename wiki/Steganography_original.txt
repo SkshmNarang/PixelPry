@@ -1,0 +1,38 @@
+STEGANOGRAPHY ANALYSIS & EXPLANATION: Steganography_original.png
+======================================================================
+
+1. FILE OVERVIEW
+----------------------------------------------------------------------
+Target File : testing phase/Steganography_original.png
+Format      : PNG (Lossless Spatial Format)
+Dimensions  : 200 x 200 pixels
+Color Mode  : RGB (24-bit True Color)
+File Size   : 90,235 bytes (~90.2 KB)
+Origin      : Wikimedia Commons (File:Steganography original.png by User:Cyp)
+
+2. YOUR SCRIPT'S EXECUTION OUTPUT
+----------------------------------------------------------------------
+Target File     : d:\New folder\testing phase\Steganography_original.png
+Detected Format : PNG
+Method 1 (LSB)  : Applicable=Yes, Payload Found=[-], "No coherent printable ASCII run"
+Method 2 (DCT)  : Applicable=No, Skipped for spatial format
+
+3. PLAIN ENGLISH EXPLANATION
+----------------------------------------------------------------------
+- What the script checked: The script searched the least significant bits
+  of the image for a readable English message or a standard length header.
+- Why it reported 'None detected': It found no readable ASCII letters or
+  valid length prefixes.
+- What is ACTUALLY inside: This picture contains a hidden full-color image
+  of a cat!
+- How it was hidden: The author took the 2 most significant bits of the cat
+  picture and embedded them into the 2 least significant bits of the tree.
+- Why your script didn't detect it: The script looks for 1-bit ASCII text.
+  Because the payload is a 2-bit visual photograph, its raw bits look like
+  random bytes rather than English letters.
+
+4. EXTRACTED PAYLOAD
+----------------------------------------------------------------------
+The hidden cat has been extracted and saved to:
+  wiki/Steganography_original_extracted_cat.png
+======================================================================

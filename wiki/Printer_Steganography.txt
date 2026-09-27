@@ -1,0 +1,28 @@
+STEGANOGRAPHY ANALYSIS & EXPLANATION: Printer_Steganography.jpg
+======================================================================
+
+1. FILE OVERVIEW
+----------------------------------------------------------------------
+Target File : testing phase/Printer_Steganography.jpg
+Format      : JPEG
+File Size   : 179,128 bytes (~179 KB)
+Origin      : Wikimedia Commons / EFF (Electronic Frontier Foundation)
+
+2. YOUR SCRIPT'S EXECUTION OUTPUT
+----------------------------------------------------------------------
+Target File     : d:\New folder\testing phase\Printer_Steganography.jpg
+Detected Format : JPEG
+Method 1 (LSB)  : Applicable=No, Skipped for lossy format
+Method 2 (DCT)  : Applicable=Yes, Payload Found=[-], "No coherent printable ASCII run"
+Method 3 (Steg) : Applicable=Yes, Payload Found=[-], "No Steghide payload detected"
+
+3. PLAIN ENGLISH EXPLANATION
+----------------------------------------------------------------------
+- What the script checked: DCT frequency coefficients and Steghide payloads.
+- Result: None detected.
+- The Truth: This photograph shows Machine Identification Codes (MIC) -
+  the tiny yellow tracking dots printed by color laser printers that secretly
+  encode the printer's serial number and timestamp onto paper!
+- Why your script didn't detect it: The secret is on physical paper captured
+  by a camera, not inside digital JPEG coefficients.
+======================================================================

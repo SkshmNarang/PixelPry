@@ -1,0 +1,29 @@
+STEGANOGRAPHY ANALYSIS & EXPLANATION: Spectrogram - Nine Inch Nails
+======================================================================
+
+1. FILE OVERVIEW
+----------------------------------------------------------------------
+Target File : testing phase/Spectrogram_-_Nine_Inch_Nails_-_My_Violent_Heart.png
+Format      : PNG
+Dimensions  : 587 x 638 pixels
+File Size   : 274,098 bytes (~274 KB)
+Origin      : Wikimedia Commons (File:Spectrogram - Nine Inch Nails - My Violent Heart.png)
+
+2. YOUR SCRIPT'S EXECUTION OUTPUT
+----------------------------------------------------------------------
+Target File     : d:\New folder\testing phase\Spectrogram_-_Nine_Inch_Nails_-_My_Violent_Heart.png
+Detected Format : PNG
+Method 1 (LSB)  : Applicable=Yes, Payload Found=[-], "No coherent printable ASCII run"
+Method 2 (DCT)  : Applicable=No, Skipped for spatial format
+
+3. PLAIN ENGLISH EXPLANATION
+----------------------------------------------------------------------
+- What the script checked: Scanned pixel LSBs for sequential ASCII text.
+- Result: None detected.
+- The Truth: This image is a screenshot of the famous audio steganography
+  Easter egg from Nine Inch Nails' album 'Year Zero' (track: My Violent Heart).
+  When the song's ending is viewed in a frequency spectrum analyzer, a
+  gigantic ghostly hand ("The Presence") appears visually.
+- Forensic Meaning: The steganography is hidden inside sound frequencies,
+  not inside the pixel bits of the image file.
+======================================================================

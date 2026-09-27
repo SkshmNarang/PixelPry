@@ -1,0 +1,41 @@
+======================================================================
+ BYTE MAIT CYBERSECURITY TASK 02: STEGANOGRAPHY
+======================================================================
+Target File    : challenge.png
+Challenge Task : "The challenge is a PNG file that has been corrupted. Find the flag in the format BYTE{...}."
+
+FLAG FOUND:
+  BYTE{g0t_1t_1n_plA1n_s1ght}
+
+(Rendered verbatim in image banner: flag{g0t_1t_1n_plA1n_s1ght})
+
+FORENSIC ANALYSIS & HOW THE FLAG WAS RECOVERED:
+----------------------------------------------------------------------
+1. The Initial Failure:
+   Running your script (prototype1/stego_extract.py) directly on challenge.png
+   reported:
+     "Extraction failed with error: cannot identify image file 'challenge.png'"
+   This occurred because challenge.png was intentionally corrupted by the CTF
+   challenge author to defeat automated stego tools.
+
+2. PNG Header Tampering (Height Concealment):
+   - The file's IHDR CRC was 0xcad1ced6, but the height field was set to 800
+     (0x00000320), causing a CRC mismatch (expected 0x8c3b621c).
+   - Computing the true dimensions that satisfy the 0xcad1ced6 CRC checksum
+     revealed the original height is 850 pixels.
+   - The author cropped the height by 50 pixels to hide the bottom banner!
+
+3. Injected Corrupting Bytes:
+   - Exactly 12 extraneous bytes (hex: 6c 0b f0 45 4a 5d 83 1e 0c ff 95 34)
+     were inserted at file offset 196677 (between IDAT chunks 3 and 4).
+   - This corrupted chunk alignment and caused libpng to abort decoding with
+     "unrecognized data stream contents".
+
+4. Reconstructing the Flag:
+   - Stripping the 12 corrupting bytes restored IDAT chunk alignment.
+   - Restoring the true height of 850 rows revealed the hidden bottom banner.
+   - Decoding the raw scanlines exposed the secret flag:
+       flag{g0t_1t_1n_plA1n_s1ght}
+     Standardized for BYTE MAIT recruitment format:
+       BYTE{g0t_1t_1n_plA1n_s1ght}
+======================================================================

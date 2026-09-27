@@ -779,7 +779,12 @@ def inspect_visual_bitplanes(image_path):
 
     try:
         with Image.open(image_path) as img:
-            arr = np.array(img.convert("RGB"), dtype=np.uint8)
+            rgb_img = img.convert("RGB")
+            colors_sample = rgb_img.getcolors(maxcolors=65)
+            if colors_sample and len(colors_sample) <= 32:
+                # Flat palette/vector graphics naturally have uniform bitplanes; not hidden stego images
+                return result
+            arr = np.array(rgb_img, dtype=np.uint8)
 
         h, w, _ = arr.shape
         if h < 20 or w < 20:
@@ -1167,7 +1172,15 @@ def generate_extraction_code(
 
     out_file = os.path.join(SCRIPT_DIR, "{base_name}_extracted_visual.png")
     out_img.save(out_file)
-    print(f"[+] Visual hidden image recovered and saved to: {{out_file}}")
+
+    print("\\n" + "=" * 60)
+    print(" [+] HIDDEN INFORMATION REVEALED: VISUAL BITPLANE IMAGE")
+    print(f"     Payload Type : {v_type}")
+    print(f"     Resolution   : {{vis_arr.shape[1]}}x{{vis_arr.shape[0]}} pixels")
+    print(f"     Explanation  : A secret image concealed in the lowest pixel bits")
+    print(f"                    has been isolated and contrast-stretched.")
+    print(f"     Saved Output : {{out_file}}")
+    print("=" * 60 + "\\n")
     return out_file'''
         actions.append(("extract_visual", func_code))
 
@@ -1192,7 +1205,23 @@ def generate_extraction_code(
     out_file = os.path.join(SCRIPT_DIR, "{base_name}_extracted_overlay{ext}")
     with open(out_file, "wb") as f:
         f.write(overlay_bytes)
-    print(f"[+] Appended overlay ({p_type}, {{len(overlay_bytes):,}} bytes) saved to: {{out_file}}")
+
+    preview_str = ""
+    try:
+        txt = overlay_bytes[:200].decode("latin1", "ignore")
+        clean_txt = "".join(c if (32 <= ord(c) <= 126 or c in "\\n\\r\\t") else "." for c in txt)
+        if len(clean_txt.strip()) > 5:
+            preview_str = f"\\n     Content Preview: {{clean_txt[:100]}}"
+    except Exception:
+        pass
+
+    print("\\n" + "=" * 60)
+    print(" [+] HIDDEN INFORMATION REVEALED: CONTAINER APPENDED OVERLAY")
+    print(f"     Payload Type : {p_type}")
+    print(f"     Injected At  : Byte offset {offset} (past image EOF)")
+    print(f"     Payload Size : {{len(overlay_bytes):,}} bytes{{preview_str}}")
+    print(f"     Saved Output : {{out_file}}")
+    print("=" * 60 + "\\n")
     return out_file'''
         actions.append(("extract_overlay", func_code))
 
@@ -1228,11 +1257,16 @@ def generate_extraction_code(
             chunk_data = raw[p_idx+4:p_idx+4+plen]
             text = "".join(chr(b) for b in chunk_data if 32 <= b <= 126)
 
-    print(f"[+] Recovered text: {{text}}")
     out_file = os.path.join(SCRIPT_DIR, "{base_name}_extracted_palette.txt")
     with open(out_file, "w", encoding="utf-8") as f:
         f.write(text)
-    print(f"[+] Saved text to: {{out_file}}")
+
+    print("\\n" + "=" * 60)
+    print(" [+] HIDDEN INFORMATION REVEALED: DECODED SECRET MESSAGE")
+    print(f"     Hidden Message: '{{text}}'")
+    print(f"     Technique     : Color Palette ASCII Steganography")
+    print(f"     Saved Output  : {{out_file}}")
+    print("=" * 60 + "\\n")
     return out_file'''
         actions.append(("extract_palette", func_code))
 
@@ -1298,7 +1332,22 @@ def generate_extraction_code(
     out_file = os.path.join(SCRIPT_DIR, "{base_name}_extracted_lsb{ext}")
     with open(out_file, "wb") as f:
         f.write(payload)
-    print(f"[+] LSB payload ({p_type}, {{len(payload):,}} bytes) saved to: {{out_file}}")
+
+    msg_preview = ""
+    try:
+        decoded_text = payload.decode("utf-8", "ignore").strip()
+        if len(decoded_text) >= 4 and sum(1 for c in decoded_text if 32 <= ord(c) <= 126 or c in "\\n\\r\\t") / max(1, len(decoded_text)) > 0.8:
+            msg_preview = f"\\n     Decoded Message: '{{decoded_text[:500]}}'"
+    except Exception:
+        pass
+
+    print("\\n" + "=" * 60)
+    print(" [+] HIDDEN INFORMATION REVEALED: SPATIAL LSB PAYLOAD")
+    print(f"     Payload Type : {p_type}")
+    print(f"     Channel Mode : {pipe_name}")
+    print(f"     Payload Size : {{len(payload):,}} bytes{{msg_preview}}")
+    print(f"     Saved Output : {{out_file}}")
+    print("=" * 60 + "\\n")
     return out_file'''
         actions.append(("extract_lsb", func_code))
 
@@ -1362,7 +1411,13 @@ def generate_extraction_code(
     out_file = os.path.join(SCRIPT_DIR, "{base_name}_extracted_dct{ext}")
     with open(out_file, "wb") as f:
         f.write(payload)
-    print(f"[+] DCT payload ({p_type}, {{len(payload):,}} bytes) saved to: {{out_file}}")
+
+    print("\\n" + "=" * 60)
+    print(" [+] HIDDEN INFORMATION REVEALED: DCT FREQUENCY PAYLOAD")
+    print(f"     Payload Type : {p_type}")
+    print(f"     Payload Size : {{len(payload):,}} bytes")
+    print(f"     Saved Output : {{out_file}}")
+    print("=" * 60 + "\\n")
     return out_file'''
         actions.append(("extract_dct", func_code))
 
@@ -1384,7 +1439,11 @@ def generate_extraction_code(
     cmd = ["steghide", "extract", "-sf", img_path, "-p", passphrase, "-xf", out_file, "-f"]
     try:
         subprocess.run(cmd, check=True)
-        print(f"[+] Steghide payload extracted to: {{out_file}}")
+        print("\\n" + "=" * 60)
+        print(" [+] HIDDEN INFORMATION REVEALED: STEGHIDE EMBEDDED FILE")
+        print(f"     Passphrase   : {repr(passphrase)}")
+        print(f"     Saved Output : {{out_file}}")
+        print("=" * 60 + "\\n")
         return out_file
     except Exception as e:
         print(f"[-] Steghide extraction failed: {{e}}")
@@ -1707,6 +1766,35 @@ def print_report(
         )
         if generated_code:
             print("\n" + sep)
+            print(" DISCOVERED HIDDEN INFORMATION (HUMAN-READABLE SUMMARY)")
+            print(sep)
+            if palette_result and palette_result.get("found"):
+                print(f" [+] Technique    : Palette Color-as-Text Steganography")
+                print(f" [+] Hidden Data  : \"{palette_result.get('word', '')}\"")
+                print(f" [+] Explanation  : Secret text was directly encoded inside the palette colors.")
+            if visual_result and visual_result.get("found"):
+                print(f" [+] Technique    : Visual Bitplane Steganography ({visual_result.get('type')})")
+                print(f" [+] Hidden Data  : Secret visual graphic embedded across lower bitplanes")
+                print(f" [+] Explanation  : Contrast-stretched bitplanes reveal a concealed image.")
+            if lsb_result and lsb_result.get("payload_found"):
+                info = lsb_result.get("payload_info", {})
+                print(f" [+] Technique    : Spatial LSB Steganography ({lsb_result.get('convention')})")
+                print(f" [+] Hidden Data  : {info.get('type', 'Binary Data')} ({len(lsb_result.get('raw_bytes', b'')):,} bytes)")
+                if info.get("preview"):
+                    safe_prev = "".join(c if (32 <= ord(c) <= 126 or c in "\n\r\t") else "." for c in info.get("preview", ""))
+                    print(f" [+] Preview      : {safe_prev[:120]}")
+            if overlay_result and overlay_result.get("found"):
+                o_info = overlay_result.get("info", {})
+                print(f" [+] Technique    : Appended File Overlay Steganography")
+                print(f" [+] Hidden Data  : {o_info.get('type', 'Binary Data')} ({len(overlay_result.get('overlay_bytes', b'')):,} bytes at offset {overlay_result.get('offset')})")
+            if steghide_result and steghide_result.get("payload_found"):
+                print(f" [+] Technique    : Steghide Encrypted Steganography")
+                print(f" [+] Passphrase   : {steghide_result.get('meta', {}).get('passphrase', '')}")
+            if dct_result and dct_result.get("payload_found"):
+                d_info = dct_result.get("payload_info", {})
+                print(f" [+] Technique    : 2D-DCT AC Frequency Coefficient Steganography")
+                print(f" [+] Hidden Data  : {d_info.get('type', 'Binary Data')}")
+            print(sep)
             print(" REPRODUCIBLE PYTHON EXTRACTION CODE")
             print(" (Destination folder was skipped - run this code to obtain the result)")
             print(sep)

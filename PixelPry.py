@@ -1137,16 +1137,17 @@ def generate_extraction_code(
     """
     Generates a standalone, executable Python script allowing the user to
     independently reproduce extraction of any discovered steganographic payload.
+    Features self-healing dependency auto-install and path resolution for VS Code.
     """
     actions = []
-    imports = set(["import os", "import sys"])
+    required_packages = set()
     base_name = os.path.splitext(os.path.basename(image_path))[0]
     safe_abs_path = os.path.abspath(image_path)
 
     # 1. Visual Bitplane Steganography
     if visual_result and visual_result.get("found"):
-        imports.add("from PIL import Image")
-        imports.add("import numpy as np")
+        required_packages.add("pillow")
+        required_packages.add("numpy")
         v_meta = visual_result.get("meta", {})
         mask = v_meta.get("mask", 3)
         scale = v_meta.get("scale", 85)
@@ -1164,7 +1165,7 @@ def generate_extraction_code(
     vis_arr = (arr & {mask}) * {scale}
     out_img = Image.fromarray(vis_arr)
 
-    out_file = "{base_name}_extracted_visual.png"
+    out_file = os.path.join(SCRIPT_DIR, "{base_name}_extracted_visual.png")
     out_img.save(out_file)
     print(f"[+] Visual hidden image recovered and saved to: {{out_file}}")
     return out_file'''
@@ -1188,7 +1189,7 @@ def generate_extraction_code(
 
     offset = {offset}
     overlay_bytes = data[offset:]
-    out_file = "{base_name}_extracted_overlay{ext}"
+    out_file = os.path.join(SCRIPT_DIR, "{base_name}_extracted_overlay{ext}")
     with open(out_file, "wb") as f:
         f.write(overlay_bytes)
     print(f"[+] Appended overlay ({p_type}, {{len(overlay_bytes):,}} bytes) saved to: {{out_file}}")
@@ -1197,30 +1198,38 @@ def generate_extraction_code(
 
     # 3. Palette / Color-as-Text
     if palette_result and palette_result.get("found"):
-        imports.add("from PIL import Image")
-        p_meta = palette_result.get("meta", {})
-        source_mode = p_meta.get("source", "palette")
+        required_packages.add("pillow")
 
         func_code = f'''def extract_palette(img_path):
     """
     Decodes hidden text stored directly in palette or unique RGB color triplets.
     """
     print(f"[*] Decoding palette / color-encoded steganography from: {{img_path}}")
-    img = Image.open(img_path)
-    if img.mode == "P" and img.getpalette():
-        pal = img.getpalette()
-        non_zero = [b for b in pal if b != 0]
-        text = "".join(chr(b) for b in non_zero if 32 <= b <= 126)
-    else:
-        colors = img.convert("RGB").getcolors(maxcolors=256)
-        raw_b = []
-        if colors:
-            for _, rgb in colors:
-                raw_b.extend(rgb)
-        text = "".join(chr(b) for b in raw_b if 32 <= b <= 126)
+    text = ""
+    try:
+        img = Image.open(img_path)
+        if img.mode == "P" and img.getpalette():
+            pal = img.getpalette()
+            non_zero = [b for b in pal if b != 0]
+            text = "".join(chr(b) for b in non_zero if 32 <= b <= 126)
+        else:
+            colors = img.convert("RGB").getcolors(maxcolors=256)
+            raw_b = []
+            if colors:
+                for _, rgb in colors:
+                    raw_b.extend(rgb)
+            text = "".join(chr(b) for b in raw_b if 32 <= b <= 126)
+    except Exception:
+        with open(img_path, "rb") as f:
+            raw = f.read()
+        p_idx = raw.find(b"PLTE")
+        if p_idx != -1 and p_idx >= 4:
+            plen = int.from_bytes(raw[p_idx-4:p_idx], "big")
+            chunk_data = raw[p_idx+4:p_idx+4+plen]
+            text = "".join(chr(b) for b in chunk_data if 32 <= b <= 126)
 
     print(f"[+] Recovered text: {{text}}")
-    out_file = "{base_name}_extracted_palette.txt"
+    out_file = os.path.join(SCRIPT_DIR, "{base_name}_extracted_palette.txt")
     with open(out_file, "w", encoding="utf-8") as f:
         f.write(text)
     print(f"[+] Saved text to: {{out_file}}")
@@ -1229,8 +1238,8 @@ def generate_extraction_code(
 
     # 4. Spatial LSB Bitstream
     if lsb_result and lsb_result.get("payload_found"):
-        imports.add("from PIL import Image")
-        imports.add("import numpy as np")
+        required_packages.add("pillow")
+        required_packages.add("numpy")
         meta = lsb_result.get("meta", {})
         pipe_id = meta.get("pipe_id", "rgb_seq")
         pipe_name = meta.get("pipe_name", "Spatial LSB")
@@ -1286,7 +1295,7 @@ def generate_extraction_code(
 
 {slice_lines}
 
-    out_file = "{base_name}_extracted_lsb{ext}"
+    out_file = os.path.join(SCRIPT_DIR, "{base_name}_extracted_lsb{ext}")
     with open(out_file, "wb") as f:
         f.write(payload)
     print(f"[+] LSB payload ({p_type}, {{len(payload):,}} bytes) saved to: {{out_file}}")
@@ -1295,9 +1304,9 @@ def generate_extraction_code(
 
     # 5. DCT Coefficients (JPEG)
     if dct_result and dct_result.get("payload_found"):
-        imports.add("from PIL import Image")
-        imports.add("import numpy as np")
-        imports.add("from scipy.fftpack import dct")
+        required_packages.add("pillow")
+        required_packages.add("numpy")
+        required_packages.add("scipy")
         d_meta = dct_result.get("meta", {})
         d_type = d_meta.get("type", "magic")
         p_info = dct_result.get("payload_info", {})
@@ -1350,7 +1359,7 @@ def generate_extraction_code(
 
 {slice_lines}
 
-    out_file = "{base_name}_extracted_dct{ext}"
+    out_file = os.path.join(SCRIPT_DIR, "{base_name}_extracted_dct{ext}")
     with open(out_file, "wb") as f:
         f.write(payload)
     print(f"[+] DCT payload ({p_type}, {{len(payload):,}} bytes) saved to: {{out_file}}")
@@ -1359,7 +1368,6 @@ def generate_extraction_code(
 
     # 6. Steghide
     if steghide_result and steghide_result.get("payload_found"):
-        imports.add("import subprocess")
         s_meta = steghide_result.get("meta", {})
         passphrase = s_meta.get("passphrase", "")
         p_info = steghide_result.get("payload_info", {})
@@ -1370,8 +1378,9 @@ def generate_extraction_code(
     Extracts Steghide steganographic payload using passphrase.
     """
     print(f"[*] Extracting Steghide payload from: {{img_path}}")
+    import subprocess
     passphrase = {repr(passphrase)}
-    out_file = "{base_name}_extracted_steghide{ext}"
+    out_file = os.path.join(SCRIPT_DIR, "{base_name}_extracted_steghide{ext}")
     cmd = ["steghide", "extract", "-sf", img_path, "-p", passphrase, "-xf", out_file, "-f"]
     try:
         subprocess.run(cmd, check=True)
@@ -1385,9 +1394,55 @@ def generate_extraction_code(
     if not actions:
         return None
 
-    # Assemble complete standalone script
-    sorted_imports = sorted(list(imports), key=lambda x: (not x.startswith("import os"), not x.startswith("import sys"), x))
-    imports_str = "\n".join(sorted_imports)
+    # Construct auto-dependency check
+    dep_check_code = ""
+    if required_packages:
+        pkg_list_str = ", ".join(repr(p) for p in sorted(list(required_packages)))
+        dep_check_code = f'''# Self-healing dependency check & auto-installation for any Python environment
+def _ensure_dependencies(*packages):
+    missing = []
+    for pkg in packages:
+        mod = "PIL" if pkg.lower() == "pillow" else pkg
+        try:
+            __import__(mod)
+        except ImportError:
+            missing.append(pkg)
+    if missing:
+        print(f"[*] Required packages missing: {{', '.join(missing)}}. Installing automatically...")
+        import subprocess
+        installed = False
+        try:
+            subprocess.check_call(["uv", "pip", "install", "--break-system-packages", "--python", sys.executable, *missing])
+            installed = True
+        except Exception:
+            pass
+        if not installed:
+            for flags in [["--break-system-packages"], ["--user"], []]:
+                try:
+                    subprocess.check_call([sys.executable, "-m", "pip", "install", *flags, *missing])
+                    installed = True
+                    break
+                except Exception:
+                    pass
+        if not installed:
+            print(f"[-] Could not auto-install: {{missing}}")
+            print(f"[!] Please run: pip install {{' '.join(missing)}}")
+            sys.exit(1)
+        print("[+] Dependencies installed successfully!\\n")
+
+_ensure_dependencies({pkg_list_str})
+'''
+
+    # Imports after dependencies are ensured
+    imports_list = []
+    if "pillow" in required_packages:
+        imports_list.append("from PIL import Image")
+    if "numpy" in required_packages:
+        imports_list.append("import numpy as np")
+    if "scipy" in required_packages:
+        imports_list.append("from scipy.fftpack import dct")
+
+    imports_str = "\n".join(imports_list)
     functions_str = "\n\n".join(code for _, code in actions)
     calls_str = "\n    ".join(f"{name}(target)" for name, _ in actions)
 
@@ -1398,29 +1453,58 @@ Generated automatically for: {os.path.basename(image_path)}
 Format: {format_name}
 """
 
+import os
+import sys
+
+{dep_check_code}
 {imports_str}
 
+# Directory containing this script (outputs will be saved here)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else os.getcwd()
+
+# Default path to target image (checks absolute path, then alongside script)
 TARGET_IMAGE = r"{safe_abs_path}"
 
 {functions_str}
 
 def main():
-    target = sys.argv[1] if len(sys.argv) > 1 else TARGET_IMAGE
+    default_target = TARGET_IMAGE
+    if not os.path.isfile(default_target):
+        alt_target = os.path.join(SCRIPT_DIR, os.path.basename(TARGET_IMAGE))
+        if os.path.isfile(alt_target):
+            default_target = alt_target
+
+    target = sys.argv[1] if len(sys.argv) > 1 else default_target
     if not os.path.isfile(target):
         print(f"[-] Target image not found: {{target}}")
+        print(f"[*] Usage: python {{os.path.basename(__file__)}} <image_path>")
         sys.exit(1)
 
     print("=" * 60)
     print(" PixelPry Standalone Steganography Extractor")
     print("=" * 60)
-    print(f"[*] Target: {{target}}")
+    print(f"[*] Target image: {{target}}")
+    print(f"[*] Output dir  : {{SCRIPT_DIR}}")
+    print("-" * 60)
 
     {calls_str}
 
-    print("\\n[+] Extraction finished successfully!")
+    print("-" * 60)
+    print("[+] All extraction operations completed successfully!")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        import traceback
+        print(f"\\n[-] Execution Error: {{e}}")
+        traceback.print_exc()
+    finally:
+        if sys.stdin and sys.stdin.isatty():
+            try:
+                input("\\nPress Enter to exit...")
+            except (EOFError, KeyboardInterrupt):
+                pass
 '''
     return script_template
 

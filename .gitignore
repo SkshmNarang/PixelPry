@@ -3,6 +3,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+
 # Temporary and test files
 test*.txt
 test*.bin

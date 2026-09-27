@@ -640,9 +640,10 @@ def main():
     """
     Main entry point for command-line execution.
     """
-    if len(sys.argv) < 2:
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
+        print("PixelPry - Heuristic Image Steganography Analysis & Extraction Tool")
         print(f"Usage: python {os.path.basename(sys.argv[0])} <image_file_path> [--verify <reference_file>] [--save <output_dir>]")
-        sys.exit(1)
+        sys.exit(0 if len(sys.argv) >= 2 and sys.argv[1] in ("-h", "--help") else 1)
 
     image_path = sys.argv[1]
 

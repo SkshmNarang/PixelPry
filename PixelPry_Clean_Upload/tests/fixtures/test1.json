@@ -1,0 +1,17 @@
+{
+    "system_id": "ALPHA-9021",
+    "security_level": "RESTRICTED",
+    "auth_tokens": {
+        "api_access": "sk_live_9f82d710a9b34c89e210",
+        "refresh_token": "rt_9012aab78f2301cde8"
+    },
+    "coordinates": {
+        "latitude": 37.7749,
+        "longitude": -122.4194,
+        "elevation_m": 16.5
+    },
+    "active_nodes": [
+        "node-us-east-1",
+        "node-eu-west-2"
+    ]
+}

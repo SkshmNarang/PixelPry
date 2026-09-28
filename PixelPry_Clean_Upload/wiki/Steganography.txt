@@ -1,0 +1,27 @@
+STEGANOGRAPHY ANALYSIS & EXPLANATION: Steganography.png
+======================================================================
+
+1. FILE OVERVIEW
+----------------------------------------------------------------------
+Target File : testing phase/Steganography.png
+Format      : PNG (RGB)
+Dimensions  : 480 x 120 pixels
+File Size   : 6,420 bytes (~6.4 KB)
+Origin      : Wikimedia Commons (File:Steganography.png)
+
+2. YOUR SCRIPT'S EXECUTION OUTPUT
+----------------------------------------------------------------------
+Target File     : d:\New folder\testing phase\Steganography.png
+Detected Format : PNG
+Method 1 (LSB)  : Applicable=Yes, Payload Found=[-], "No coherent printable ASCII run"
+Method 2 (DCT)  : Applicable=No, Skipped for spatial format
+
+3. PLAIN ENGLISH EXPLANATION
+----------------------------------------------------------------------
+- What the script checked: Scanned for sequential 1-bit ASCII text.
+- Result: None detected.
+- The Truth: This file is an educational comparison graphic illustrating
+  visual color planes and steganographic concepts on Wikipedia.
+- Forensic Meaning: It is an explanatory diagram, not a carrier harboring
+  an encrypted or hidden file.
+======================================================================

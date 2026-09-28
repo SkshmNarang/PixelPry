@@ -1,0 +1,29 @@
+STEGANOGRAPHY ANALYSIS & EXPLANATION: Image_hidden_in_an_audio.png
+======================================================================
+
+1. FILE OVERVIEW
+----------------------------------------------------------------------
+Target File : testing phase/Image_hidden_in_an_audio.png
+Format      : PNG
+File Size   : 910,469 bytes (~910 KB)
+Origin      : Wikimedia Commons (File:Image hidden in an audio.png)
+
+2. YOUR SCRIPT'S EXECUTION OUTPUT
+----------------------------------------------------------------------
+Target File     : d:\New folder\testing phase\Image_hidden_in_an_audio.png
+Detected Format : PNG
+Method 1 (LSB)  : Applicable=Yes, Payload Found=[+] LIKELY
+Preview         : "UUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU..."
+
+3. PLAIN ENGLISH EXPLANATION
+----------------------------------------------------------------------
+- What the script flagged: Found a massive repeating stream of 'U' letters.
+- What 'U' means: In binary, 'U' is 01010101 (hex 0x55) - an alternating
+  bit pattern of 0s and 1s.
+- The Truth: This file is a spectrogram screenshot from Sonic Visualiser
+  showing an image hidden inside the frequency spectrum of an audio track!
+- Why 'U' was found: The sharp frequency grid lines created alternating
+  even/odd pixel values, which assembled into 01010101 (ASCII 'U').
+- Forensic Meaning: Demonstrates why automated heuristic scans require
+  manual verification to distinguish grid patterns from real English text.
+======================================================================

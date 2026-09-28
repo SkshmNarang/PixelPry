@@ -1,0 +1,30 @@
+STEGANOGRAPHY ANALYSIS & EXPLANATION: ChangeinLSB.jpg
+======================================================================
+
+1. FILE OVERVIEW
+----------------------------------------------------------------------
+Target File : testing phase/ChangeinLSB.jpg
+Format      : JPEG (Lossy DCT Format)
+File Size   : 886,070 bytes (~886 KB)
+Origin      : Wikimedia Commons (File:ChangeinLSB.jpg)
+
+2. YOUR SCRIPT'S EXECUTION OUTPUT
+----------------------------------------------------------------------
+Target File     : d:\New folder\testing phase\ChangeinLSB.jpg
+Detected Format : JPEG
+Method 1 (LSB)  : Applicable=No, Skipped for lossy format
+Method 2 (DCT)  : Applicable=Yes, Payload Found=[-], "No coherent printable ASCII run"
+Method 3 (Steg) : Applicable=Yes, Payload Found=[-], "No Steghide payload detected"
+
+3. PLAIN ENGLISH EXPLANATION
+----------------------------------------------------------------------
+- What the script checked: Skipped spatial LSB (because JPEG compression
+  destroys pixel bits), then tested DCT frequency coefficients and Steghide
+  encrypted archives.
+- Result: None detected.
+- The Truth: This file is an educational infographic explaining how
+  modifying the least significant bits (+/- 3 on color 235) remains invisible
+  to human eyes.
+- Forensic Meaning: It teaches steganography, but does not conceal a secret
+  payload itself.
+======================================================================

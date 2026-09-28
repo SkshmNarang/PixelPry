@@ -1,0 +1,28 @@
+======================================================================
+ DECODED PAYLOAD: Wikipedia_Steganography_Flag.png
+======================================================================
+Methodology: Direct 24-bit RGB Color-as-Text Mapping
+Source: Wikimedia Commons / Wikipedia Steganography Flag
+
+The colors of the three stripes on this flag directly represent
+ASCII characters through their RGB byte values:
+
+Stripe 1:
+  - RGB Values : Red=87, Green=105, Blue=107
+  - Hex Code   : #57696B
+  - ASCII Chars: 'W', 'i', 'k' -> 'Wik'
+
+Stripe 2:
+  - RGB Values : Red=105, Green=112, Blue=101
+  - Hex Code   : #697065
+  - ASCII Chars: 'i', 'p', 'e' -> 'ipe'
+
+Stripe 3:
+  - RGB Values : Red=100, Green=105, Blue=97
+  - Hex Code   : #646961
+  - ASCII Chars: 'd', 'i', 'a' -> 'dia'
+
+----------------------------------------------------------------------
+FULL DECODED SECRET MESSAGE:
+"Wikipedia"
+======================================================================

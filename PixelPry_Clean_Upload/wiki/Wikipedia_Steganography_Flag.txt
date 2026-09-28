@@ -1,0 +1,36 @@
+STEGANOGRAPHY ANALYSIS & EXPLANATION: Wikipedia_Steganography_Flag.png
+======================================================================
+
+1. FILE OVERVIEW
+----------------------------------------------------------------------
+Target File : testing phase/Wikipedia_Steganography_Flag.png
+Format      : PNG (Palette Mode)
+Dimensions  : 1,875 x 1,250 pixels
+File Size   : 3,049 bytes (~3.0 KB)
+Origin      : Wikimedia Commons (File:Wikipedia Steganography Flag.png)
+
+2. YOUR SCRIPT'S EXECUTION OUTPUT
+----------------------------------------------------------------------
+Target File     : d:\New folder\testing phase\Wikipedia_Steganography_Flag.png
+Detected Format : PNG
+Method 1 (LSB)  : Applicable=Yes, Payload Found=[-], "No coherent printable ASCII run"
+Method 2 (DCT)  : Applicable=No, Skipped for spatial format
+
+3. PLAIN ENGLISH EXPLANATION
+----------------------------------------------------------------------
+- What the script checked: Scanned pixel LSBs for hidden ASCII text.
+- Why it reported 'None detected': No LSB stream was found.
+- The Truth: The image is a flag whose visual stripe colors literally
+  spell the word "Wikipedia"!
+  * Stripe 1: RGB (87, 105, 107) -> ASCII 'Wik'
+  * Stripe 2: RGB (105, 112, 101) -> ASCII 'ipe'
+  * Stripe 3: RGB (100, 105, 97) -> ASCII 'dia'
+  Combined: "Wikipedia"
+- Why your script didn't detect it: The entire color of each stripe IS the
+  message, rather than data hidden invisibly in the least significant bits.
+
+4. EXTRACTED PAYLOAD
+----------------------------------------------------------------------
+The decoded text has been extracted and saved to:
+  wiki/Wikipedia_Steganography_Flag_extracted_text.txt
+======================================================================

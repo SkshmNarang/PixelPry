@@ -177,21 +177,6 @@ The standalone executable will be output to `dist/PixelPry.exe`.
 
 ---
 
-## Forensic Wiki & Reference Suite (`wiki/`)
-
-The repository includes a verification suite demonstrating various steganography techniques across 8 distinct categories:
-
-| Target Image in `samples/` | Steganography Method | Extracted Payload | True Format |
-| :--- | :--- | :--- | :--- |
-| `Steganography_original.png` | 2-bit Spatial Visual LSB | Hidden cat photograph | `.png` |
-| `Wikipedia_Steganography_Flag.png` | 24-bit RGB Color-as-Text | `"Wikipedia"` secret text | `.txt` |
-| `Steganography.png` | Color Channel Separation | Red/Green/Blue bit-planes | `.png` |
-| `Spectrogram_-_Nine_Inch_Nails.png` | Audio Frequency Spectrogram | "The Presence" ghostly hand | `.png` |
-| `Printer_Steganography.jpg` | Machine Identification Code | Yellow laser tracking dot grid | `.png` |
-| `ChangeinLSB.jpg` | Human Perception Analysis | Lossless LSB comparison | `.png` |
-
----
-
 ## Forensic Methodology & Caveats
 
 - **Heuristic Boundaries:** A verdict of `None detected` does not prove an image is clean. Non-sequential pixel orderings, custom PRNG seeds, encryption without headers, and exotic color space manipulation require targeted domain tests.

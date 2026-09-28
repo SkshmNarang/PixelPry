@@ -1,0 +1,5 @@
+Think that innocent PNG is just a picture? Look closer.
+
+PixelPry tears through spatial LSBs, 2D-DCT frequency transforms, and corrupted binary chunk structures to extract 11 native payload formats (WAV, ZIP, PEM, JSON, Python, and images) hidden in plain sight. Built for security researchers and CTF hunters.
+
+Check it out: https://github.com/skshmnarang/PixelPry

@@ -19,8 +19,9 @@
 - [Installation & Setup](#installation--setup)
 - [Usage Guide](#usage-guide)
   - [CLI Mode](#1-cli-mode)
-  - [Interactive & Drag-and-Drop Mode](#2-interactive--drag-and-drop-mode)
-  - [Building Standalone Windows Executable](#3-building-standalone-windows-executable)
+  - [Graphical User Interface (GUI Mode)](#2-graphical-user-interface-gui-mode)
+  - [Interactive & Drag-and-Drop Mode](#3-interactive--drag-and-drop-mode)
+  - [Building Standalone Windows Executable](#4-building-standalone-windows-executable)
 - [BYTE MAIT Task 02: Challenge Writeup](#byte-mait-task-02-challenge-writeup)
 - [Forensic Wiki & Reference Suite (`wiki/`)](#forensic-wiki--reference-suite-wiki)
 - [Forensic Methodology & Caveats](#forensic-methodology--caveats)
@@ -132,7 +133,27 @@ python PixelPry.py samples/Steganography_original.png --save output_directory/
 
 ---
 
-### 2. Interactive & Drag-and-Drop Mode
+### 2. Graphical User Interface (GUI Mode)
+PixelPry includes a modern desktop application built with `customtkinter`:
+```bash
+python PixelPry_GUI.py
+```
+Or launch directly with a target image preloaded:
+```bash
+python PixelPry_GUI.py samples/Steganography.png
+```
+
+**GUI Capabilities:**
+- **Interactive Multi-Tab Dashboard:** Real-time metrics for Container Format, Image Dimensions, File Size, Stego Detection, and Reference Verification.
+- **Dynamic Bit-Plane Explorer:** StegSolve-style bitplane visual inspection (Channels: RGB, Red, Green, Blue, Alpha; Bitplanes: 2-bit Visual LSB, Bit 0 to Bit 7 MSB).
+- **Stream Healing & CTF Banner Viewer:** Direct visual display of healed PNG canvases and isolated secret banner crops.
+- **Carved Payload Inspector:** Formatted text viewer (JSON, PEM, HTML, Python, XML, CSV), forensic hex dump viewer, and Shannon entropy analyzer.
+- **One-Click Payload & Script Export:** Save all carved payloads into native formats or generate reproducible standalone extraction scripts (`.py`).
+- **Live Terminal Log:** Real-time log output with dark/light theme switching.
+
+---
+
+### 3. Interactive & Drag-and-Drop Mode
 PixelPry includes a smart terminal runner. If launched without CLI arguments or double-clicked from Windows Explorer:
 1. It automatically prompts for the image file path.
 2. Supports dragging and dropping an image directly into the terminal window.
@@ -140,7 +161,7 @@ PixelPry includes a smart terminal runner. If launched without CLI arguments or 
 
 ---
 
-### 3. Building Standalone Windows Executable
+### 4. Building Standalone Windows Executable
 You can compile PixelPry into a standalone `.exe` bundled with all Python runtimes and libraries:
 ```bash
 pip install pyinstaller

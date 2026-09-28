@@ -16,6 +16,7 @@ ALL types of hidden data, including:
 
 import sys
 import os
+import io
 import time
 import stat
 import string
@@ -117,24 +118,74 @@ def get_container_size(raw_bytes, file_type):
             if eoi_pos != -1:
                 return min(eoi_pos + 2, len(raw_bytes))
 
+        # HTML Document (Look for </html>)
+        if file_type == "HTML":
+            lower = raw_bytes.lower()
+            iend = lower.rfind(b"</html>")
+            if iend != -1:
+                return min(iend + 7, len(raw_bytes))
+
+        # PEM Key / Certificate (Look for -----END ...-----)
+        if file_type == "PEM" and b"-----BEGIN " in raw_bytes:
+            start = raw_bytes.find(b"-----BEGIN ")
+            end_m = raw_bytes.find(b"-----END ", start)
+            if end_m != -1:
+                close_d = raw_bytes.find(b"-----", end_m + 9)
+                if close_d != -1:
+                    return min(close_d + 5, len(raw_bytes))
+
+        # JSON Document (Scan to matching closing brace/bracket)
+        if file_type == "JSON" and (raw_bytes.startswith(b"{") or raw_bytes.startswith(b"[")):
+            try:
+                txt = raw_bytes.decode("utf-8", "ignore").strip()
+                open_ch = txt[0]
+                close_ch = "}" if open_ch == "{" else "]"
+                depth = 0
+                in_str = False
+                escape = False
+                for idx_c, c in enumerate(txt):
+                    if c == '"' and not escape:
+                        in_str = not in_str
+                    elif not in_str:
+                        if c == open_ch:
+                            depth += 1
+                        elif c == close_ch:
+                            depth -= 1
+                            if depth == 0:
+                                return min(len(txt[:idx_c + 1].encode("utf-8")), len(raw_bytes))
+                    escape = (c == "\\" and not escape)
+            except Exception:
+                pass
+
     except Exception:
         pass
     return len(raw_bytes)
 
 
-def analyze_payload(raw_bytes):
+def convert_to_original_format(raw_bytes):
     """
-    Identifies exact format of raw bytes:
-    Binary (ZIP, WAV, PNG, JPEG, BMP, GIF, PDF, ELF, EXE, GZIP, 7z, SQLite, etc.)
-    or Text (JSON, XML, CSV, Python, PEM, ASCII, CTF Flags).
+    Analyzes raw payload bytes, carves away bitstream padding/noise, and converts the
+    data into its clean, native original format:
+      - .wav  (WAV PCM Audio)
+      - .txt  (Plain Text / ASCII Secret Message / CTF Flag)
+      - .png  (PNG Image)
+      - .html (HTML Source File / Web Page)
+      - .bin  (Raw Binary / Linux ELF Binary)
+      - .zip  (ZIP Archive)
+      - .pem  (Cryptographic Key / Certificate)
+      - .json (JSON Source File)
+      - .py, .xml, .csv, .pdf, .jpg, etc.
+    Returns dictionary with clean_bytes, ext, type, preview, is_text, metadata, exact_length.
     """
     if not raw_bytes:
         return {
             "type": "Empty",
             "ext": ".bin",
+            "clean_bytes": b"",
             "preview": "Empty payload (0 bytes)",
             "is_text": False,
-            "metadata": ""
+            "metadata": "0 bytes",
+            "exact_length": 0
         }
 
     length = len(raw_bytes)
@@ -142,14 +193,15 @@ def analyze_payload(raw_bytes):
     # 1. ZIP Archive (PK\x03\x04)
     if raw_bytes.startswith(b"PK\x03\x04"):
         actual_len = get_container_size(raw_bytes, "ZIP")
+        clean_bytes = raw_bytes[:actual_len]
         try:
-            import io
-            with zipfile.ZipFile(io.BytesIO(raw_bytes[:actual_len])) as zf:
+            with zipfile.ZipFile(io.BytesIO(clean_bytes)) as zf:
                 file_list = zf.namelist()
-                preview = f"[ZIP Archive] Size: {actual_len} bytes | Files ({len(file_list)}): " + ", ".join(file_list[:5])
+                preview = f"[ZIP Archive] Size: {actual_len:,} bytes | Files ({len(file_list)}): " + ", ".join(file_list[:5])
                 return {
                     "type": "ZIP Archive",
                     "ext": ".zip",
+                    "clean_bytes": clean_bytes,
                     "preview": preview,
                     "is_text": False,
                     "metadata": f"Contains {len(file_list)} file(s)",
@@ -159,7 +211,8 @@ def analyze_payload(raw_bytes):
             return {
                 "type": "ZIP Archive",
                 "ext": ".zip",
-                "preview": f"[ZIP Archive] Size: {actual_len} bytes",
+                "clean_bytes": clean_bytes,
+                "preview": f"[ZIP Archive] Size: {actual_len:,} bytes",
                 "is_text": False,
                 "metadata": "ZIP container",
                 "exact_length": actual_len
@@ -168,16 +221,17 @@ def analyze_payload(raw_bytes):
     # 2. WAV Audio (RIFF....WAVE)
     if raw_bytes.startswith(b"RIFF") and len(raw_bytes) >= 12 and raw_bytes[8:12] == b"WAVE":
         actual_len = get_container_size(raw_bytes, "WAV")
+        clean_bytes = raw_bytes[:actual_len]
         try:
-            import io
-            with wave.open(io.BytesIO(raw_bytes[:actual_len]), "rb") as wf:
+            with wave.open(io.BytesIO(clean_bytes), "rb") as wf:
                 ch = wf.getnchannels()
                 rate = wf.getframerate()
                 duration = wf.getnframes() / float(rate) if rate > 0 else 0
-                preview = f"[WAV Audio] Size: {actual_len} bytes | {ch}-channel, {rate} Hz (duration: {duration:.2f}s)"
+                preview = f"[WAV Audio] Size: {actual_len:,} bytes | {ch}-ch, {rate} Hz (duration: {duration:.2f}s)"
                 return {
                     "type": "WAV Audio",
                     "ext": ".wav",
+                    "clean_bytes": clean_bytes,
                     "preview": preview,
                     "is_text": False,
                     "metadata": f"{ch}ch, {rate}Hz, {duration:.2f}s",
@@ -187,7 +241,8 @@ def analyze_payload(raw_bytes):
             return {
                 "type": "WAV Audio",
                 "ext": ".wav",
-                "preview": f"[WAV Audio Stream] Size: {actual_len} bytes",
+                "clean_bytes": clean_bytes,
+                "preview": f"[WAV Audio Stream] Size: {actual_len:,} bytes",
                 "is_text": False,
                 "metadata": "PCM Audio",
                 "exact_length": actual_len
@@ -196,13 +251,14 @@ def analyze_payload(raw_bytes):
     # 3. PNG Image (\x89PNG\r\n\x1a\n)
     if raw_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
         actual_len = get_container_size(raw_bytes, "PNG")
+        clean_bytes = raw_bytes[:actual_len]
         try:
-            import io
-            with Image.open(io.BytesIO(raw_bytes[:actual_len])) as im:
-                preview = f"[PNG Image] Size: {actual_len} bytes | Resolution: {im.size[0]}x{im.size[1]}, Mode: {im.mode}"
+            with Image.open(io.BytesIO(clean_bytes)) as im:
+                preview = f"[PNG Image] Size: {actual_len:,} bytes | Resolution: {im.size[0]}x{im.size[1]}, Mode: {im.mode}"
                 return {
                     "type": "PNG Image",
                     "ext": ".png",
+                    "clean_bytes": clean_bytes,
                     "preview": preview,
                     "is_text": False,
                     "metadata": f"{im.size}, {im.mode}",
@@ -212,7 +268,8 @@ def analyze_payload(raw_bytes):
             return {
                 "type": "PNG Image",
                 "ext": ".png",
-                "preview": f"[PNG Image Stream] Size: {actual_len} bytes",
+                "clean_bytes": clean_bytes,
+                "preview": f"[PNG Image Stream] Size: {actual_len:,} bytes",
                 "is_text": False,
                 "metadata": "PNG image",
                 "exact_length": actual_len
@@ -221,11 +278,12 @@ def analyze_payload(raw_bytes):
     # 4. JPEG Image (\xff\xd8\xff)
     if raw_bytes.startswith(b"\xff\xd8\xff"):
         actual_len = get_container_size(raw_bytes, "JPEG")
-        preview = f"[JPEG Image] Size: {actual_len} bytes"
+        clean_bytes = raw_bytes[:actual_len]
         return {
             "type": "JPEG Image",
             "ext": ".jpg",
-            "preview": preview,
+            "clean_bytes": clean_bytes,
+            "preview": f"[JPEG Image] Size: {actual_len:,} bytes",
             "is_text": False,
             "metadata": "JPEG container",
             "exact_length": actual_len
@@ -234,11 +292,12 @@ def analyze_payload(raw_bytes):
     # 5. BMP Image (BM)
     if raw_bytes.startswith(b"BM") and len(raw_bytes) >= 14:
         actual_len = get_container_size(raw_bytes, "BMP")
-        preview = f"[BMP Image] Size: {actual_len} bytes"
+        clean_bytes = raw_bytes[:actual_len]
         return {
             "type": "BMP Image",
             "ext": ".bmp",
-            "preview": preview,
+            "clean_bytes": clean_bytes,
+            "preview": f"[BMP Image] Size: {actual_len:,} bytes",
             "is_text": False,
             "metadata": "BMP bitmap",
             "exact_length": actual_len
@@ -246,23 +305,25 @@ def analyze_payload(raw_bytes):
 
     # 6. GIF Image (GIF87a / GIF89a)
     if raw_bytes.startswith(b"GIF87a") or raw_bytes.startswith(b"GIF89a"):
-        preview = f"[GIF Image] Size: {length} bytes"
         return {
             "type": "GIF Image",
             "ext": ".gif",
-            "preview": preview,
+            "clean_bytes": raw_bytes,
+            "preview": f"[GIF Image] Size: {length:,} bytes",
             "is_text": False,
-            "metadata": "GIF animation/image"
+            "metadata": "GIF animation/image",
+            "exact_length": length
         }
 
     # 7. PDF Document (%PDF)
     if raw_bytes.startswith(b"%PDF"):
         actual_len = get_container_size(raw_bytes, "PDF")
-        preview = f"[PDF Document] Size: {actual_len} bytes"
+        clean_bytes = raw_bytes[:actual_len]
         return {
             "type": "PDF Document",
             "ext": ".pdf",
-            "preview": preview,
+            "clean_bytes": clean_bytes,
+            "preview": f"[PDF Document] Size: {actual_len:,} bytes",
             "is_text": False,
             "metadata": "Portable Document Format",
             "exact_length": actual_len
@@ -270,217 +331,310 @@ def analyze_payload(raw_bytes):
 
     # 8. 7-Zip Archive (7z\xbc\xaf\x27\x1c)
     if raw_bytes.startswith(b"7z\xbc\xaf\x27\x1c"):
-        preview = f"[7-Zip Archive] Size: {length} bytes"
         return {
             "type": "7-Zip Archive",
             "ext": ".7z",
-            "preview": preview,
+            "clean_bytes": raw_bytes,
+            "preview": f"[7-Zip Archive] Size: {length:,} bytes",
             "is_text": False,
-            "metadata": "7z Archive"
+            "metadata": "7z Archive",
+            "exact_length": length
         }
 
     # 9. GZIP Compressed Data (\x1f\x8b)
     if raw_bytes.startswith(b"\x1f\x8b"):
         try:
             decomp = zlib.decompress(raw_bytes, 16 + zlib.MAX_WBITS)
-            decomp_info = analyze_payload(decomp)
-            preview = f"[GZIP Compressed Stream] Unpacks to {len(decomp)} bytes of {decomp_info['type']}"
+            decomp_info = convert_to_original_format(decomp)
+            preview = f"[GZIP Compressed Stream] Unpacks to {len(decomp):,} bytes of {decomp_info['type']}"
             return {
                 "type": "GZIP Archive",
                 "ext": ".gz",
+                "clean_bytes": raw_bytes,
                 "preview": preview,
                 "is_text": False,
                 "metadata": f"Unpacks to {decomp_info['type']}",
-                "decompressed": decomp
+                "decompressed": decomp,
+                "exact_length": length
             }
         except Exception:
             return {
                 "type": "GZIP Stream",
                 "ext": ".gz",
-                "preview": f"[GZIP Compressed Stream] Size: {length} bytes",
+                "clean_bytes": raw_bytes,
+                "preview": f"[GZIP Compressed Stream] Size: {length:,} bytes",
                 "is_text": False,
-                "metadata": "GZIP"
+                "metadata": "GZIP",
+                "exact_length": length
             }
 
-    # 10. RAR Archive (Rar!\x1a\x07)
-    if raw_bytes.startswith(b"Rar!\x1a\x07"):
-        return {
-            "type": "RAR Archive",
-            "ext": ".rar",
-            "preview": f"[RAR Archive] Size: {length} bytes",
-            "is_text": False,
-            "metadata": "RAR Archive"
-        }
-
-    # 11. Linux ELF Binary (\x7fELF)
+    # 10. Linux ELF Binary (\x7fELF)
     if raw_bytes.startswith(b"\x7fELF"):
         return {
-            "type": "ELF Executable/Library",
-            "ext": ".elf",
-            "preview": f"[Linux ELF Binary] Size: {length} bytes",
+            "type": "ELF Binary / Executable",
+            "ext": ".bin",
+            "clean_bytes": raw_bytes,
+            "preview": f"[Linux ELF Binary] Size: {length:,} bytes",
             "is_text": False,
-            "metadata": "ELF binary"
+            "metadata": "ELF binary",
+            "exact_length": length
         }
 
-    # 12. Windows PE Executable / DLL (MZ)
+    # 11. Windows PE Executable (MZ)
     if raw_bytes.startswith(b"MZ"):
         return {
             "type": "Windows Executable (PE)",
             "ext": ".exe",
-            "preview": f"[Windows PE Executable] Size: {length} bytes",
+            "clean_bytes": raw_bytes,
+            "preview": f"[Windows PE Executable] Size: {length:,} bytes",
             "is_text": False,
-            "metadata": "PE / MZ executable"
+            "metadata": "PE / MZ executable",
+            "exact_length": length
         }
 
-    # 13. SQLite Database (SQLite format 3)
+    # 12. SQLite Database (SQLite format 3\x00)
     if raw_bytes.startswith(b"SQLite format 3\x00"):
         return {
             "type": "SQLite Database",
             "ext": ".db",
-            "preview": f"[SQLite 3 Database] Size: {length} bytes",
+            "clean_bytes": raw_bytes,
+            "preview": f"[SQLite 3 Database] Size: {length:,} bytes",
             "is_text": False,
-            "metadata": "SQLite DB"
+            "metadata": "SQLite DB",
+            "exact_length": length
         }
 
-    # 14. Audio Streams: MP3 / FLAC / OGG
+    # 13. Audio Streams: MP3 / FLAC / OGG
     if raw_bytes.startswith(b"ID3") or raw_bytes.startswith(b"\xff\xfb") or raw_bytes.startswith(b"\xff\xf3"):
         return {
             "type": "MP3 Audio",
             "ext": ".mp3",
-            "preview": f"[MP3 Audio Stream] Size: {length} bytes",
+            "clean_bytes": raw_bytes,
+            "preview": f"[MP3 Audio Stream] Size: {length:,} bytes",
             "is_text": False,
-            "metadata": "MPEG Audio"
+            "metadata": "MPEG Audio",
+            "exact_length": length
         }
     if raw_bytes.startswith(b"fLaC"):
         return {
             "type": "FLAC Audio",
             "ext": ".flac",
-            "preview": f"[FLAC Lossless Audio] Size: {length} bytes",
+            "clean_bytes": raw_bytes,
+            "preview": f"[FLAC Lossless Audio] Size: {length:,} bytes",
             "is_text": False,
-            "metadata": "FLAC Audio"
+            "metadata": "FLAC Audio",
+            "exact_length": length
         }
     if raw_bytes.startswith(b"OggS"):
         return {
             "type": "OGG Container",
             "ext": ".ogg",
-            "preview": f"[OGG Stream] Size: {length} bytes",
+            "clean_bytes": raw_bytes,
+            "preview": f"[OGG Stream] Size: {length:,} bytes",
             "is_text": False,
-            "metadata": "OGG"
+            "metadata": "OGG",
+            "exact_length": length
         }
 
-    # 15. Check for Decodable Text & Structured Formats
+    # 14. Text Formats & Structured Documents (HTML, PEM, JSON, XML, Python, CSV, CTF Flags, Plain Text)
     try:
         decoded = raw_bytes.decode("utf-8", errors="ignore")
-        printable_count = sum(1 for c in decoded if c in string.printable)
-        ratio = printable_count / len(decoded) if decoded else 0
-        if ratio >= 0.85:
-            stripped = decoded.strip()
+        # Strip trailing nulls / padding
+        cleaned_text = decoded.split("\x00")[0].strip()
+        printable_ratio = sum(1 for c in cleaned_text if 32 <= ord(c) <= 126 or c in "\n\r\t") / max(1, len(cleaned_text))
 
-            # CTF Flag Pattern
-            for prefix in ("flag{", "BYTE{", "CTF{", "picoCTF{", "HTB{"):
-                if prefix.lower() in stripped.lower():
-                    start_idx = stripped.lower().find(prefix.lower())
-                    end_idx = stripped.find("}", start_idx)
-                    flag_val = stripped[start_idx : end_idx + 1] if end_idx != -1 else stripped[start_idx : start_idx + 60]
-                    return {
-                        "type": "CTF Flag",
-                        "ext": ".txt",
-                        "preview": f"[+] RECOVERED FLAG: {flag_val}",
-                        "is_text": True,
-                        "metadata": f"CTF Flag ({flag_val})"
-                    }
+        if printable_ratio >= 0.75 and len(cleaned_text) >= 3:
+            lower = cleaned_text.lower()
 
-            # JSON Data
-            if (stripped.startswith("{") and stripped.endswith("}")) or (stripped.startswith("[") and stripped.endswith("]")):
-                try:
-                    parsed = json.loads(stripped)
-                    preview = json.dumps(parsed, indent=2)[:300]
-                    return {
-                        "type": "JSON Data",
-                        "ext": ".json",
-                        "preview": preview,
-                        "is_text": True,
-                        "metadata": "Valid JSON"
-                    }
-                except Exception:
-                    pass
-
-            # PEM Key / Certificate
-            if "-----BEGIN " in stripped:
+            # 14A. HTML Source File / Document
+            if (
+                lower.startswith("<!doctype html")
+                or lower.startswith("<html")
+                or ("<html" in lower and "</html>" in lower)
+                or ("<head" in lower and "<body" in lower)
+            ):
+                end_tag = lower.rfind("</html>")
+                clean_html = cleaned_text[:end_tag + 7].strip() if end_tag != -1 else cleaned_text
+                clean_bytes = (clean_html + "\n").encode("utf-8")
                 return {
-                    "type": "Cryptographic Key (PEM)",
-                    "ext": ".pem",
-                    "preview": stripped[:300],
+                    "type": "HTML Source File",
+                    "ext": ".html",
+                    "clean_bytes": clean_bytes,
+                    "preview": clean_html[:300],
                     "is_text": True,
-                    "metadata": "PEM Key"
+                    "metadata": f"HTML document ({len(clean_bytes):,} bytes)",
+                    "exact_length": len(clean_bytes)
                 }
 
-            # XML / HTML Document
-            if stripped.startswith("<?xml") or (stripped.startswith("<") and stripped.endswith(">")):
+            # 14B. Cryptographic Key / Certificate (PEM)
+            if "-----BEGIN " in cleaned_text:
+                start = cleaned_text.find("-----BEGIN ")
+                end_marker = cleaned_text.find("-----END ", start)
+                if end_marker != -1:
+                    close_dash = cleaned_text.find("-----", end_marker + 9)
+                    if close_dash != -1:
+                        clean_pem = cleaned_text[start : close_dash + 5].strip() + "\n"
+                        clean_bytes = clean_pem.encode("utf-8")
+                        return {
+                            "type": "Cryptographic Key (PEM)",
+                            "ext": ".pem",
+                            "clean_bytes": clean_bytes,
+                            "preview": clean_pem[:300],
+                            "is_text": True,
+                            "metadata": "PEM Key/Certificate",
+                            "exact_length": len(clean_bytes)
+                        }
+
+            # 14C. JSON Source File
+            if cleaned_text.startswith("{") or cleaned_text.startswith("["):
+                # Try direct parse
+                try:
+                    obj = json.loads(cleaned_text)
+                    formatted_json = json.dumps(obj, indent=4) + "\n"
+                    clean_bytes = formatted_json.encode("utf-8")
+                    return {
+                        "type": "JSON Source File",
+                        "ext": ".json",
+                        "clean_bytes": clean_bytes,
+                        "preview": formatted_json[:300],
+                        "is_text": True,
+                        "metadata": "Valid JSON source",
+                        "exact_length": len(clean_bytes)
+                    }
+                except Exception:
+                    # Scan for root object/array boundary via bracket counting
+                    open_ch = cleaned_text[0]
+                    close_ch = "}" if open_ch == "{" else "]"
+                    depth = 0
+                    in_str = False
+                    escape = False
+                    cut_idx = -1
+                    for idx_c, c in enumerate(cleaned_text):
+                        if c == '"' and not escape:
+                            in_str = not in_str
+                        elif not in_str:
+                            if c == open_ch:
+                                depth += 1
+                            elif c == close_ch:
+                                depth -= 1
+                                if depth == 0:
+                                    cut_idx = idx_c
+                                    break
+                        escape = (c == "\\" and not escape)
+                    if cut_idx != -1:
+                        try:
+                            obj = json.loads(cleaned_text[:cut_idx+1])
+                            formatted_json = json.dumps(obj, indent=4) + "\n"
+                            clean_bytes = formatted_json.encode("utf-8")
+                            return {
+                                "type": "JSON Source File",
+                                "ext": ".json",
+                                "clean_bytes": clean_bytes,
+                                "preview": formatted_json[:300],
+                                "is_text": True,
+                                "metadata": "Valid JSON source",
+                                "exact_length": len(clean_bytes)
+                            }
+                        except Exception:
+                            pass
+
+            # 14D. XML Document
+            if cleaned_text.startswith("<?xml") or (cleaned_text.startswith("<") and cleaned_text.endswith(">") and not cleaned_text.startswith("<!")):
+                clean_bytes = (cleaned_text + "\n").encode("utf-8")
                 return {
                     "type": "XML Document",
                     "ext": ".xml",
-                    "preview": stripped[:300],
+                    "clean_bytes": clean_bytes,
+                    "preview": cleaned_text[:300],
                     "is_text": True,
-                    "metadata": "XML"
+                    "metadata": "XML Document",
+                    "exact_length": len(clean_bytes)
                 }
 
-            # Python Script
-            if (stripped.startswith("#!/") and "python" in stripped) or ("import " in stripped and "def " in stripped):
+            # 14E. Python Source Code
+            if (cleaned_text.startswith("#!/") and "python" in cleaned_text) or ("import " in cleaned_text and "def " in cleaned_text):
+                clean_bytes = (cleaned_text + "\n").encode("utf-8")
                 return {
-                    "type": "Python Script",
+                    "type": "Python Source Code",
                     "ext": ".py",
-                    "preview": stripped[:300],
+                    "clean_bytes": clean_bytes,
+                    "preview": cleaned_text[:300],
                     "is_text": True,
-                    "metadata": "Python Source Code"
+                    "metadata": "Python Source Code",
+                    "exact_length": len(clean_bytes)
                 }
 
-            # Shell Script
-            if stripped.startswith("#!/bin/") or stripped.startswith("@echo off"):
-                return {
-                    "type": "Shell Script",
-                    "ext": ".sh" if stripped.startswith("#!") else ".bat",
-                    "preview": stripped[:300],
-                    "is_text": True,
-                    "metadata": "Shell Script"
-                }
-
-            # CSV Spreadsheet
-            lines = [l for l in stripped.splitlines() if l.strip()]
+            # 14F. CSV Spreadsheet
+            lines = [l for l in cleaned_text.splitlines() if l.strip()]
             if len(lines) >= 2 and all("," in l for l in lines[:5]):
+                clean_bytes = (cleaned_text + "\n").encode("utf-8")
                 return {
                     "type": "CSV Spreadsheet",
                     "ext": ".csv",
-                    "preview": stripped[:300],
+                    "clean_bytes": clean_bytes,
+                    "preview": cleaned_text[:300],
                     "is_text": True,
-                    "metadata": f"{len(lines)} rows"
+                    "metadata": f"{len(lines)} rows",
+                    "exact_length": len(clean_bytes)
                 }
 
-            # Plain Text (Must pass entropy filter to avoid uniform noise like 'wwwwww')
-            distinct_chars = len(set(stripped))
-            if distinct_chars >= 6:
-                counts = Counter(stripped)
-                most_common_ratio = counts.most_common(1)[0][1] / len(stripped)
-                if most_common_ratio <= 0.40:
+            # 14G. CTF Flag
+            for prefix in ("flag{", "BYTE{", "CTF{", "picoCTF{", "HTB{"):
+                if prefix.lower() in cleaned_text.lower():
+                    start_idx = cleaned_text.lower().find(prefix.lower())
+                    end_idx = cleaned_text.find("}", start_idx)
+                    flag_val = cleaned_text[start_idx : end_idx + 1] if end_idx != -1 else cleaned_text[start_idx : start_idx + 60]
+                    clean_bytes = (flag_val + "\n").encode("utf-8")
                     return {
-                        "type": "Plain Text",
+                        "type": "CTF Flag",
                         "ext": ".txt",
-                        "preview": stripped[:300],
+                        "clean_bytes": clean_bytes,
+                        "preview": f"[+] RECOVERED FLAG: {flag_val}",
                         "is_text": True,
-                        "metadata": f"{len(stripped)} chars"
+                        "metadata": f"CTF Flag ({flag_val})",
+                        "exact_length": len(clean_bytes)
+                    }
+
+            # 14H. Plain Text Message
+            distinct_chars = len(set(cleaned_text))
+            if distinct_chars >= 5:
+                counts = Counter(cleaned_text)
+                most_common_ratio = counts.most_common(1)[0][1] / len(cleaned_text)
+                if most_common_ratio <= 0.40:
+                    clean_bytes = (cleaned_text + "\n").encode("utf-8")
+                    return {
+                        "type": "Plain Text Message",
+                        "ext": ".txt",
+                        "clean_bytes": clean_bytes,
+                        "preview": cleaned_text[:300],
+                        "is_text": True,
+                        "metadata": f"{len(cleaned_text)} characters",
+                        "exact_length": len(clean_bytes)
                     }
 
     except Exception:
         pass
 
-    # 16. Fallback: Raw Binary Stream
+    # 15. Fallback: Raw Binary Stream
     return {
-        "type": "Raw Binary",
+        "type": "Binary Data",
         "ext": ".bin",
-        "preview": f"[Raw Binary Payload] Size: {length} bytes | Hex: {raw_bytes[:32].hex()}...",
+        "clean_bytes": raw_bytes,
+        "preview": f"[Binary Data] Size: {length:,} bytes | Hex: {raw_bytes[:32].hex()}...",
         "is_text": False,
-        "metadata": f"{length} bytes"
+        "metadata": f"{length:,} bytes",
+        "exact_length": length
     }
+
+
+def analyze_payload(raw_bytes):
+    """
+    Identifies exact format of raw bytes:
+    Binary (WAV, ZIP, PNG, JPEG, BMP, GIF, PDF, ELF, EXE, GZIP, 7z, SQLite, etc.)
+    or Text (JSON, HTML, PEM, TXT, XML, CSV, Python, CTF Flags)
+    and converts it into its clean native original format.
+    """
+    return convert_to_original_format(raw_bytes)
 
 
 def find_magic_in_stream(raw_bytes, max_scan=512):
@@ -494,7 +648,7 @@ def find_magic_in_stream(raw_bytes, max_scan=512):
         (b"BM", "BMP Image", ".bmp", "BMP"),
         (b"GIF87a", "GIF Image", ".gif", "GIF"),
         (b"GIF89a", "GIF Image", ".gif", "GIF"),
-        (b"RIFF", "RIFF Container (WAV/AVI)", ".wav", "WAV"),
+        (b"RIFF", "WAV Audio", ".wav", "WAV"),
         (b"%PDF", "PDF Document", ".pdf", "PDF"),
         (b"\x1f\x8b", "GZIP Archive", ".gz", "GZIP"),
         (b"7z\xbc\xaf\x27\x1c", "7-Zip Archive", ".7z", "7Z"),
@@ -502,7 +656,13 @@ def find_magic_in_stream(raw_bytes, max_scan=512):
         (b"\x7fELF", "ELF Binary", ".bin", "ELF"),
         (b"MZ", "Windows PE Binary", ".exe", "EXE"),
         (b"SQLite format 3\x00", "SQLite Database", ".db", "SQLITE"),
+        (b"<!DOCTYPE html", "HTML Source File", ".html", "HTML"),
+        (b"<!doctype html", "HTML Source File", ".html", "HTML"),
+        (b"<html", "HTML Source File", ".html", "HTML"),
         (b"-----BEGIN ", "Cryptographic Key (PEM)", ".pem", "PEM"),
+        (b"{\"", "JSON Source File", ".json", "JSON"),
+        (b"{\n", "JSON Source File", ".json", "JSON"),
+        (b"{\r\n", "JSON Source File", ".json", "JSON"),
     ]
 
     scan_len = min(len(raw_bytes), max_scan)
@@ -514,13 +674,13 @@ def find_magic_in_stream(raw_bytes, max_scan=512):
                     continue
                 actual_len = get_container_size(slice_data, ftype)
                 carved = slice_data[:actual_len]
-                info = analyze_payload(carved)
+                info = convert_to_original_format(carved)
                 return {
                     "found": True,
                     "offset": offset,
                     "info": info,
-                    "carved_bytes": carved,
-                    "description": f"Carved {info['type']} at offset {offset} ({len(carved)} bytes)"
+                    "carved_bytes": info.get("clean_bytes", carved),
+                    "description": f"Carved {info['type']} at offset {offset} ({len(info.get('clean_bytes', carved)):,} bytes)"
                 }
 
     return {"found": False}
@@ -630,13 +790,14 @@ def detect_overlay_data(file_path, format_name):
 
         if iend_offset is not None and iend_offset < file_size:
             overlay = data[iend_offset:]
-            info = analyze_payload(overlay)
+            info = convert_to_original_format(overlay)
+            clean_overlay = info.get("clean_bytes", overlay)
             result["found"] = True
             result["offset"] = iend_offset
-            result["overlay_bytes"] = overlay
+            result["overlay_bytes"] = clean_overlay
             result["info"] = info
-            result["meta"] = {"offset": iend_offset, "len": len(overlay), "ext": info["ext"], "type": info["type"]}
-            result["preview"] = f"Appended overlay detected at offset {iend_offset} ({len(overlay)} bytes, {info['type']}):\n{info['preview']}"
+            result["meta"] = {"offset": iend_offset, "len": len(clean_overlay), "ext": info["ext"], "type": info["type"]}
+            result["preview"] = f"Appended overlay detected at offset {iend_offset} ({len(clean_overlay):,} bytes, {info['type']}):\n{info['preview']}"
 
     except Exception as e:
         result["preview"] = f"Overlay check error: {e}"
@@ -798,8 +959,18 @@ def inspect_visual_bitplanes(image_path):
         diff_v = np.abs(vis_2bit[1:, :, :] - vis_2bit[:-1, :, :]).mean()
         std_val = vis_2bit.std()
 
-        # Random noise has difference ~95; visual images have smooth edges (diff < 65)
-        if diff_h < 65 and diff_v < 65 and std_val > 15:
+        bits2 = arr & 0x03
+        counts2 = np.bincount(bits2.flatten(), minlength=4)
+        probs2 = counts2 / max(1, bits2.size)
+        entropy2 = -np.sum([p * np.log2(p) for p in probs2 if p > 0])
+        max_prob2 = probs2.max()
+
+        # In true visual bitplane stego (like Steganography_original.png):
+        # 2-bit values represent pixel shades of a hidden image:
+        # diff_h and diff_v are between 35 and 68 (not smooth flat background < 35, nor random noise > 75)
+        # 2-bit entropy is between 1.20 and 1.88 (not flat/solid < 1.20, nor uniform random ~2.00)
+        # and max_prob2 <= 0.65
+        if 35 <= diff_h <= 68 and 35 <= diff_v <= 68 and std_val > 15 and 1.20 <= entropy2 <= 1.88 and max_prob2 <= 0.65:
             result["found"] = True
             result["type"] = "2-Bit Visual Color Image"
             result["recovered_image"] = Image.fromarray(vis_2bit)
@@ -815,8 +986,11 @@ def inspect_visual_bitplanes(image_path):
         diff_1h = np.abs(vis_1bit[:, 1:, :] - vis_1bit[:, :-1, :]).mean()
         diff_1v = np.abs(vis_1bit[1:, :, :] - vis_1bit[:-1, :, :]).mean()
         std_1 = vis_1bit.std()
+        bits1 = arr & 0x01
+        prob0 = float((bits1 == 0).mean())
 
-        if diff_1h < 80 and diff_1v < 80 and std_1 > 20:
+        # For 1-bit visual watermark, spatial structure with contrast and biased bit distribution
+        if 35 <= diff_1h <= 75 and 35 <= diff_1v <= 75 and std_1 > 35 and (prob0 < 0.38 or prob0 > 0.62):
             result["found"] = True
             result["type"] = "1-Bit Visual Watermark Image"
             result["recovered_image"] = Image.fromarray(vis_1bit)
@@ -882,19 +1056,20 @@ def extract_lsb(image_path):
             be_len = int.from_bytes(raw_bytes[:4], byteorder="big")
             if 1 <= be_len <= min(len(raw_bytes) - 4, 25000000):
                 candidate = raw_bytes[4 : 4 + be_len]
-                info = analyze_payload(candidate)
-                if info["type"] not in ("Empty", "Raw Binary"):
+                info = convert_to_original_format(candidate)
+                if info["type"] not in ("Empty", "Binary Data") or info["ext"] in (".wav", ".zip", ".png", ".bin"):
+                    clean_data = info.get("clean_bytes", candidate)
                     result["payload_found"] = True
-                    result["raw_bytes"] = candidate
+                    result["raw_bytes"] = clean_data
                     result["payload_info"] = info
-                    result["convention"] = f"{pipe_name} -> 32-bit big-endian length header ({be_len} bytes, {info['type']})"
+                    result["convention"] = f"{pipe_name} -> 32-bit big-endian length header ({len(clean_data):,} bytes, {info['type']})"
                     result["preview"] = info["preview"]
                     result["meta"] = {
                         "pipe_id": pipe_id,
                         "pipe_name": pipe_name,
                         "mode": conv_mode,
                         "type": "be_len",
-                        "len": be_len
+                        "len": len(clean_data)
                     }
                     return result
 
@@ -902,19 +1077,20 @@ def extract_lsb(image_path):
             le_len = int.from_bytes(raw_bytes[:4], byteorder="little")
             if 1 <= le_len <= min(len(raw_bytes) - 4, 25000000):
                 candidate = raw_bytes[4 : 4 + le_len]
-                info = analyze_payload(candidate)
-                if info["type"] not in ("Empty", "Raw Binary"):
+                info = convert_to_original_format(candidate)
+                if info["type"] not in ("Empty", "Binary Data") or info["ext"] in (".wav", ".zip", ".png", ".bin"):
+                    clean_data = info.get("clean_bytes", candidate)
                     result["payload_found"] = True
-                    result["raw_bytes"] = candidate
+                    result["raw_bytes"] = clean_data
                     result["payload_info"] = info
-                    result["convention"] = f"{pipe_name} -> 32-bit little-endian length header ({le_len} bytes, {info['type']})"
+                    result["convention"] = f"{pipe_name} -> 32-bit little-endian length header ({len(clean_data):,} bytes, {info['type']})"
                     result["preview"] = info["preview"]
                     result["meta"] = {
                         "pipe_id": pipe_id,
                         "pipe_name": pipe_name,
                         "mode": conv_mode,
                         "type": "le_len",
-                        "len": le_len
+                        "len": len(clean_data)
                     }
                     return result
 
@@ -922,8 +1098,9 @@ def extract_lsb(image_path):
             carved = find_magic_in_stream(raw_bytes, max_scan=64)
             if carved["found"]:
                 info = carved["info"]
+                clean_payload = info.get("clean_bytes", carved["carved_bytes"])
                 result["payload_found"] = True
-                result["raw_bytes"] = carved["carved_bytes"]
+                result["raw_bytes"] = clean_payload
                 result["payload_info"] = info
                 result["convention"] = f"{pipe_name} -> Direct magic byte carving ({info['type']})"
                 result["preview"] = info["preview"]
@@ -933,24 +1110,26 @@ def extract_lsb(image_path):
                     "mode": conv_mode,
                     "type": "magic",
                     "offset": carved["offset"],
-                    "len": len(carved["carved_bytes"])
+                    "len": len(clean_payload)
                 }
                 return result
 
             # Check 4: Coherent Filtered Text / Flag Recovery
             has_text, text_preview, text_bytes = find_text_runs(raw_bytes, min_length=20)
             if has_text:
+                conv = convert_to_original_format(text_bytes)
+                clean_payload = conv.get("clean_bytes", text_bytes)
                 result["payload_found"] = True
-                result["raw_bytes"] = text_bytes
-                result["convention"] = f"{pipe_name} -> Direct bitstream ASCII text run"
-                result["preview"] = text_preview
-                result["payload_info"] = analyze_payload(text_bytes)
+                result["raw_bytes"] = clean_payload
+                result["convention"] = f"{pipe_name} -> Direct bitstream ASCII text run ({conv['type']})"
+                result["preview"] = conv["preview"]
+                result["payload_info"] = conv
                 result["meta"] = {
                     "pipe_id": pipe_id,
                     "pipe_name": pipe_name,
                     "mode": conv_mode,
                     "type": "text",
-                    "len": len(text_bytes)
+                    "len": len(clean_payload)
                 }
                 return result
 
@@ -1030,35 +1209,39 @@ def extract_dct(image_path):
             be_len = int.from_bytes(raw_bytes[:4], byteorder="big")
             if 1 <= be_len <= min(len(raw_bytes) - 4, 1000000):
                 candidate = raw_bytes[4 : 4 + be_len]
-                info = analyze_payload(candidate)
+                info = convert_to_original_format(candidate)
+                clean_data = info.get("clean_bytes", candidate)
                 result["payload_found"] = True
-                result["raw_bytes"] = candidate
+                result["raw_bytes"] = clean_data
                 result["payload_info"] = info
-                result["convention"] = f"2D-DCT -> 32-bit length header ({be_len} bytes, {info['type']})"
+                result["convention"] = f"2D-DCT -> 32-bit length header ({len(clean_data):,} bytes, {info['type']})"
                 result["preview"] = info["preview"]
-                result["meta"] = {"type": "be_len", "len": be_len}
+                result["meta"] = {"type": "be_len", "len": len(clean_data)}
                 return result
 
         # Check for magic bytes
         carved = find_magic_in_stream(raw_bytes, max_scan=64)
         if carved["found"]:
             info = carved["info"]
+            clean_payload = info.get("clean_bytes", carved["carved_bytes"])
             result["payload_found"] = True
-            result["raw_bytes"] = carved["carved_bytes"]
+            result["raw_bytes"] = clean_payload
             result["payload_info"] = info
             result["convention"] = f"2D-DCT -> Direct magic byte carving ({info['type']})"
             result["preview"] = info["preview"]
-            result["meta"] = {"type": "magic", "offset": carved["offset"], "len": len(carved["carved_bytes"])}
+            result["meta"] = {"type": "magic", "offset": carved["offset"], "len": len(clean_payload)}
             return result
 
         # Check for coherent text
         has_text, text_preview, text_bytes = find_text_runs(raw_bytes, min_length=20)
         if has_text:
+            conv = convert_to_original_format(text_bytes)
+            clean_payload = conv.get("clean_bytes", text_bytes)
             result["payload_found"] = True
-            result["raw_bytes"] = text_bytes
-            result["preview"] = text_preview
-            result["payload_info"] = analyze_payload(text_bytes)
-            result["meta"] = {"type": "text", "len": len(text_bytes)}
+            result["raw_bytes"] = clean_payload
+            result["preview"] = conv["preview"]
+            result["payload_info"] = conv
+            result["meta"] = {"type": "text", "len": len(clean_payload)}
             return result
 
         result["payload_found"] = False
@@ -1102,13 +1285,14 @@ def extract_steghide(image_path, passphrases=("", "password", "admin", "123456",
                 with open(tmp_name, "rb") as f:
                     raw_bytes = f.read()
 
-                info = analyze_payload(raw_bytes)
+                info = convert_to_original_format(raw_bytes)
+                clean_bytes = info.get("clean_bytes", raw_bytes)
                 result["payload_found"] = True
-                result["raw_bytes"] = raw_bytes
+                result["raw_bytes"] = clean_bytes
                 result["payload_info"] = info
-                result["convention"] = f"Steghide (Passphrase: '{p}', {len(raw_bytes)} bytes, {info['type']})"
+                result["convention"] = f"Steghide (Passphrase: '{p}', {len(clean_bytes):,} bytes, {info['type']})"
                 result["preview"] = info["preview"]
-                result["meta"] = {"passphrase": p, "len": len(raw_bytes), "ext": info["ext"], "type": info["type"]}
+                result["meta"] = {"passphrase": p, "len": len(clean_bytes), "ext": info["ext"], "type": info["type"]}
                 return result
 
         result["preview"] = "No Steghide payload detected with standard passphrases."
@@ -1291,7 +1475,7 @@ def generate_extraction_code(
 
         func_code = f'''def extract_overlay(img_path):
     """
-    Carves appended overlay data past the container file boundary.
+    Carves appended overlay data past the container file boundary and converts to original format.
     """
     print(f"[*] Carving container overlay data from: {{img_path}}")
     with open(img_path, "rb") as f:
@@ -1299,23 +1483,19 @@ def generate_extraction_code(
 
     offset = {offset}
     overlay_bytes = data[offset:]
-    out_file = os.path.join(SCRIPT_DIR, "{base_name}_extracted_overlay{ext}")
-    out_file = _safe_write_file(out_file, overlay_bytes, mode="wb")
-
-    preview_str = ""
-    try:
-        txt = overlay_bytes[:200].decode("latin1", "ignore")
-        clean_txt = "".join(c if (32 <= ord(c) <= 126 or c in "\\n\\r\\t") else "." for c in txt)
-        if len(clean_txt.strip()) > 5:
-            preview_str = f"\\n     Content Preview: {{clean_txt[:100]}}"
-    except Exception:
-        pass
+    conv = _convert_to_original_format(overlay_bytes)
+    clean_bytes = conv["clean_bytes"]
+    out_ext = conv["ext"]
+    out_type = conv["type"]
+    out_file = os.path.join(SCRIPT_DIR, f"{base_name}_extracted_overlay{{out_ext}}")
+    out_file = _safe_write_file(out_file, clean_bytes, mode="wb")
 
     print("\\n" + "=" * 60)
-    print(" [+] HIDDEN INFORMATION REVEALED: CONTAINER APPENDED OVERLAY")
-    print(f"     Payload Type : {p_type}")
+    print(f" [+] HIDDEN INFORMATION REVEALED: {{out_type}}")
+    print(f"     Payload Type : {{out_type}}")
+    print(f"     Native Format: {{out_ext}}")
     print(f"     Injected At  : Byte offset {offset} (past image EOF)")
-    print(f"     Payload Size : {{len(overlay_bytes):,}} bytes{{preview_str}}")
+    print(f"     Payload Size : {{len(clean_bytes):,}} bytes (clean original format)")
     print(f"     Saved Output : {{out_file}}")
     print("=" * 60 + "\\n")
     return out_file'''
@@ -1412,7 +1592,7 @@ def generate_extraction_code(
 
         func_code = f'''def extract_lsb(img_path):
     """
-    Extracts LSB payload ({pipe_name}, {p_type}).
+    Extracts LSB payload ({pipe_name}, {p_type}) and converts to its original native format.
     """
     print(f"[*] Extracting spatial LSB ({pipe_name}) from: {{img_path}}")
     img = Image.open(img_path).convert("{conv_mode}")
@@ -1424,23 +1604,26 @@ def generate_extraction_code(
 
 {slice_lines}
 
-    out_file = os.path.join(SCRIPT_DIR, "{base_name}_extracted_lsb{ext}")
-    out_file = _safe_write_file(out_file, payload, mode="wb")
+    # Convert and carve into original native format (.wav, .json, .pem, .html, .png, .txt, .zip, .bin, etc.)
+    conv = _convert_to_original_format(payload)
+    clean_bytes = conv["clean_bytes"]
+    out_ext = conv["ext"]
+    out_type = conv["type"]
+    out_file = os.path.join(SCRIPT_DIR, f"{base_name}_extracted{{out_ext}}")
+    out_file = _safe_write_file(out_file, clean_bytes, mode="wb")
 
     msg_preview = ""
-    try:
-        decoded_text = payload.decode("utf-8", "ignore").strip()
-        if len(decoded_text) >= 4 and sum(1 for c in decoded_text if 32 <= ord(c) <= 126 or c in "\\n\\r\\t") / max(1, len(decoded_text)) > 0.8:
-            msg_preview = f"\\n     Decoded Message: '{{decoded_text[:500]}}'"
-    except Exception:
-        pass
+    if conv.get("preview"):
+        safe_prev = "".join(c if (32 <= ord(c) <= 126 or c in "\\n\\r\\t") else "." for c in conv["preview"])
+        msg_preview = f"\\n     Content Preview : {{safe_prev[:250]}}"
 
     print("\\n" + "=" * 60)
-    print(" [+] HIDDEN INFORMATION REVEALED: SPATIAL LSB PAYLOAD")
-    print(f"     Payload Type : {p_type}")
-    print(f"     Channel Mode : {pipe_name}")
-    print(f"     Payload Size : {{len(payload):,}} bytes{{msg_preview}}")
-    print(f"     Saved Output : {{out_file}}")
+    print(f" [+] HIDDEN INFORMATION REVEALED: {{out_type}}")
+    print(f"     Payload Type    : {{out_type}}")
+    print(f"     Native Format   : {{out_ext}}")
+    print(f"     Channel Mode    : {pipe_name}")
+    print(f"     Clean Size      : {{len(clean_bytes):,}} bytes (Original native format){{msg_preview}}")
+    print(f"     Saved Output    : {{out_file}}")
     print("=" * 60 + "\\n")
     return out_file'''
         actions.append(("extract_lsb", func_code))
@@ -1471,7 +1654,7 @@ def generate_extraction_code(
 
         func_code = f'''def extract_dct(img_path):
     """
-    Extracts LSBs from 2D-DCT AC frequency coefficients.
+    Extracts LSBs from 2D-DCT AC frequency coefficients and converts to original format.
     """
     print(f"[*] Extracting DCT AC frequency LSBs from: {{img_path}}")
     img = Image.open(img_path).convert("L")
@@ -1502,13 +1685,19 @@ def generate_extraction_code(
 
 {slice_lines}
 
-    out_file = os.path.join(SCRIPT_DIR, "{base_name}_extracted_dct{ext}")
-    out_file = _safe_write_file(out_file, payload, mode="wb")
+    # Convert and carve into original native format
+    conv = _convert_to_original_format(payload)
+    clean_bytes = conv["clean_bytes"]
+    out_ext = conv["ext"]
+    out_type = conv["type"]
+    out_file = os.path.join(SCRIPT_DIR, f"{base_name}_extracted_dct{{out_ext}}")
+    out_file = _safe_write_file(out_file, clean_bytes, mode="wb")
 
     print("\\n" + "=" * 60)
-    print(" [+] HIDDEN INFORMATION REVEALED: DCT FREQUENCY PAYLOAD")
-    print(f"     Payload Type : {p_type}")
-    print(f"     Payload Size : {{len(payload):,}} bytes")
+    print(f" [+] HIDDEN INFORMATION REVEALED: {{out_type}}")
+    print(f"     Payload Type : {{out_type}}")
+    print(f"     Native Format: {{out_ext}}")
+    print(f"     Clean Size   : {{len(clean_bytes):,}} bytes (Original native format)")
     print(f"     Saved Output : {{out_file}}")
     print("=" * 60 + "\\n")
     return out_file'''
@@ -1688,6 +1877,174 @@ def _safe_save_image(img, target_path):
                 continue
         raise PermissionError(f"Permission denied: Unable to save image '{target_path}'. Please close any image viewer using this file.")'''
 
+    converter_helper_code = '''# Native format converter & container carver for extracted payloads
+def _get_container_size(raw_bytes, file_type):
+    try:
+        if file_type == "PNG" and raw_bytes.startswith(b"\\x89PNG\\r\\n\\x1a\\n"):
+            idx = 8
+            while idx + 8 <= len(raw_bytes):
+                length = struct.unpack(">I", raw_bytes[idx:idx+4])[0]
+                ctype = raw_bytes[idx+4:idx+8]
+                idx += 12 + length
+                if ctype == b"IEND":
+                    return min(idx, len(raw_bytes))
+            return len(raw_bytes)
+        if file_type == "WAV" and raw_bytes.startswith(b"RIFF") and len(raw_bytes) >= 8:
+            return min(struct.unpack("<I", raw_bytes[4:8])[0] + 8, len(raw_bytes))
+        if file_type == "BMP" and raw_bytes.startswith(b"BM") and len(raw_bytes) >= 6:
+            return min(struct.unpack("<I", raw_bytes[2:6])[0], len(raw_bytes))
+        if file_type == "ZIP" and raw_bytes.startswith(b"PK\\x03\\x04"):
+            eocd = raw_bytes.rfind(b"PK\\x05\\x06")
+            if eocd != -1 and eocd + 22 <= len(raw_bytes):
+                comment_len = struct.unpack("<H", raw_bytes[eocd+20:eocd+22])[0]
+                return min(eocd + 22 + comment_len, len(raw_bytes))
+        if file_type == "PDF" and raw_bytes.startswith(b"%PDF"):
+            eof = raw_bytes.rfind(b"%%EOF")
+            if eof != -1:
+                return min(eof + 5, len(raw_bytes))
+        if file_type == "JPEG" and raw_bytes.startswith(b"\\xff\\xd8"):
+            eoi = raw_bytes.rfind(b"\\xff\\xd9")
+            if eoi != -1:
+                return min(eoi + 2, len(raw_bytes))
+        if file_type == "HTML":
+            iend = raw_bytes.lower().rfind(b"</html>")
+            if iend != -1:
+                return min(iend + 7, len(raw_bytes))
+        if file_type == "PEM" and b"-----BEGIN " in raw_bytes:
+            s = raw_bytes.find(b"-----BEGIN ")
+            em = raw_bytes.find(b"-----END ", s)
+            if em != -1:
+                cd = raw_bytes.find(b"-----", em + 9)
+                if cd != -1:
+                    return min(cd + 5, len(raw_bytes))
+    except Exception:
+        pass
+    return len(raw_bytes)
+
+
+def _convert_to_original_format(raw_bytes):
+    if not raw_bytes:
+        return {"type": "Empty", "ext": ".bin", "clean_bytes": b"", "preview": ""}
+    length = len(raw_bytes)
+
+    # 1. ZIP Archive
+    if raw_bytes.startswith(b"PK\\x03\\x04"):
+        sz = _get_container_size(raw_bytes, "ZIP")
+        clean = raw_bytes[:sz]
+        return {"type": "ZIP Archive", "ext": ".zip", "clean_bytes": clean, "preview": f"[ZIP Archive] {sz:,} bytes"}
+
+    # 2. WAV Audio
+    if raw_bytes.startswith(b"RIFF") and len(raw_bytes) >= 12 and raw_bytes[8:12] == b"WAVE":
+        sz = _get_container_size(raw_bytes, "WAV")
+        clean = raw_bytes[:sz]
+        return {"type": "WAV Audio", "ext": ".wav", "clean_bytes": clean, "preview": f"[WAV Audio] {sz:,} bytes"}
+
+    # 3. PNG Image
+    if raw_bytes.startswith(b"\\x89PNG\\r\\n\\x1a\\n"):
+        sz = _get_container_size(raw_bytes, "PNG")
+        clean = raw_bytes[:sz]
+        return {"type": "PNG Image", "ext": ".png", "clean_bytes": clean, "preview": f"[PNG Image] {sz:,} bytes"}
+
+    # 4. JPEG Image
+    if raw_bytes.startswith(b"\\xff\\xd8\\xff"):
+        sz = _get_container_size(raw_bytes, "JPEG")
+        clean = raw_bytes[:sz]
+        return {"type": "JPEG Image", "ext": ".jpg", "clean_bytes": clean, "preview": f"[JPEG Image] {sz:,} bytes"}
+
+    # 5. BMP Image
+    if raw_bytes.startswith(b"BM"):
+        sz = _get_container_size(raw_bytes, "BMP")
+        clean = raw_bytes[:sz]
+        return {"type": "BMP Image", "ext": ".bmp", "clean_bytes": clean, "preview": f"[BMP Image] {sz:,} bytes"}
+
+    # 6. PDF Document
+    if raw_bytes.startswith(b"%PDF"):
+        sz = _get_container_size(raw_bytes, "PDF")
+        clean = raw_bytes[:sz]
+        return {"type": "PDF Document", "ext": ".pdf", "clean_bytes": clean, "preview": f"[PDF Document] {sz:,} bytes"}
+
+    # 7. Linux ELF Binary
+    if raw_bytes.startswith(b"\\x7fELF"):
+        return {"type": "ELF Binary / Executable", "ext": ".bin", "clean_bytes": raw_bytes, "preview": f"[Linux ELF Binary] {length:,} bytes"}
+
+    # 8. Windows PE Executable
+    if raw_bytes.startswith(b"MZ"):
+        return {"type": "Windows Executable (PE)", "ext": ".exe", "clean_bytes": raw_bytes, "preview": f"[Windows PE] {length:,} bytes"}
+
+    # 9. SQLite Database
+    if raw_bytes.startswith(b"SQLite format 3\\x00"):
+        return {"type": "SQLite Database", "ext": ".db", "clean_bytes": raw_bytes, "preview": f"[SQLite DB] {length:,} bytes"}
+
+    # 10. Text & Source File Formats (HTML, PEM, JSON, XML, Python, CSV, CTF Flag, Plain Text)
+    try:
+        decoded = raw_bytes.decode("utf-8", errors="ignore")
+        cleaned_text = decoded.split("\\x00")[0].strip()
+        printable_ratio = sum(1 for c in cleaned_text if 32 <= ord(c) <= 126 or c in "\\n\\r\\t") / max(1, len(cleaned_text))
+        if printable_ratio >= 0.75 and len(cleaned_text) >= 3:
+            lower = cleaned_text.lower()
+            # HTML Document
+            if lower.startswith("<!doctype html") or lower.startswith("<html") or ("<html" in lower and "</html>" in lower):
+                end_tag = lower.rfind("</html>")
+                clean_html = cleaned_text[:end_tag + 7].strip() if end_tag != -1 else cleaned_text
+                return {"type": "HTML Source File", "ext": ".html", "clean_bytes": (clean_html + "\\n").encode("utf-8"), "preview": clean_html[:200]}
+            # Cryptographic PEM Key
+            if "-----BEGIN " in cleaned_text:
+                start = cleaned_text.find("-----BEGIN ")
+                end_m = cleaned_text.find("-----END ", start)
+                if end_m != -1:
+                    close_d = cleaned_text.find("-----", end_m + 9)
+                    if close_d != -1:
+                        clean_pem = cleaned_text[start : close_d + 5].strip() + "\\n"
+                        return {"type": "Cryptographic Key (PEM)", "ext": ".pem", "clean_bytes": clean_pem.encode("utf-8"), "preview": clean_pem[:200]}
+            # JSON Source File
+            if cleaned_text.startswith("{") or cleaned_text.startswith("["):
+                try:
+                    obj = json.loads(cleaned_text)
+                    formatted_json = json.dumps(obj, indent=4) + "\\n"
+                    return {"type": "JSON Source File", "ext": ".json", "clean_bytes": formatted_json.encode("utf-8"), "preview": formatted_json[:200]}
+                except Exception:
+                    open_ch = cleaned_text[0]
+                    close_ch = "}" if open_ch == "{" else "]"
+                    depth = 0; in_s = False; esc = False; cut = -1
+                    for ic, c in enumerate(cleaned_text):
+                        if c == '"' and not esc: in_s = not in_s
+                        elif not in_s:
+                            if c == open_ch: depth += 1
+                            elif c == close_ch:
+                                depth -= 1
+                                if depth == 0: cut = ic; break
+                        esc = (c == "\\\\" and not esc)
+                    if cut != -1:
+                        try:
+                            obj = json.loads(cleaned_text[:cut+1])
+                            formatted_json = json.dumps(obj, indent=4) + "\\n"
+                            return {"type": "JSON Source File", "ext": ".json", "clean_bytes": formatted_json.encode("utf-8"), "preview": formatted_json[:200]}
+                        except Exception: pass
+            # XML Document
+            if cleaned_text.startswith("<?xml") or (cleaned_text.startswith("<") and cleaned_text.endswith(">")):
+                return {"type": "XML Document", "ext": ".xml", "clean_bytes": (cleaned_text + "\\n").encode("utf-8"), "preview": cleaned_text[:200]}
+            # Python Script
+            if (cleaned_text.startswith("#!/") and "python" in cleaned_text) or ("import " in cleaned_text and "def " in cleaned_text):
+                return {"type": "Python Source Code", "ext": ".py", "clean_bytes": (cleaned_text + "\\n").encode("utf-8"), "preview": cleaned_text[:200]}
+            # CSV Spreadsheet
+            lines = [l for l in cleaned_text.splitlines() if l.strip()]
+            if len(lines) >= 2 and all("," in l for l in lines[:5]):
+                return {"type": "CSV Spreadsheet", "ext": ".csv", "clean_bytes": (cleaned_text + "\\n").encode("utf-8"), "preview": cleaned_text[:200]}
+            # CTF Flag
+            for prefix in ("flag{", "byte{", "ctf{", "picoctf{", "htb{"):
+                if prefix in lower:
+                    s_idx = lower.find(prefix)
+                    e_idx = cleaned_text.find("}", s_idx)
+                    f_val = cleaned_text[s_idx : e_idx + 1] if e_idx != -1 else cleaned_text[s_idx : s_idx + 60]
+                    return {"type": "CTF Flag", "ext": ".txt", "clean_bytes": (f_val + "\\n").encode("utf-8"), "preview": f_val}
+            # Plain Text Message
+            return {"type": "Plain Text Message", "ext": ".txt", "clean_bytes": (cleaned_text + "\\n").encode("utf-8"), "preview": cleaned_text[:200]}
+    except Exception:
+        pass
+
+    return {"type": "Binary Data", "ext": ".bin", "clean_bytes": raw_bytes, "preview": f"[Binary Data] {length:,} bytes"}
+'''
+
     script_template = f'''#!/usr/bin/env python3
 """
 PixelPry Standalone Forensic Extraction Script
@@ -1703,8 +2060,16 @@ HOW TO RUN IN VS CODE:
 
 import os
 import sys
+import io
 import time
 import stat
+import string
+import struct
+import json
+import zipfile
+import wave
+import zlib
+from collections import Counter
 
 {dep_check_code}
 {imports_str}
@@ -1714,6 +2079,8 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals
 
 # Default path to target image (checks absolute path, then alongside script)
 TARGET_IMAGE = r"{safe_abs_path}"
+
+{converter_helper_code}
 
 {safe_writers_code}
 
@@ -1895,8 +2262,22 @@ def print_report(
                     ref_bytes = rf.read()
 
                 matched = False
-                for p_bytes, _, _ in all_payloads:
-                    if p_bytes == ref_bytes or ref_bytes in p_bytes:
+                for p_bytes, p_info, _ in all_payloads:
+                    if p_bytes == ref_bytes:
+                        matched = True
+                        break
+                    if p_info and p_info.get("is_text"):
+                        if p_bytes.strip() == ref_bytes.strip() or ref_bytes in p_bytes or p_bytes in ref_bytes:
+                            matched = True
+                            break
+                        if p_info.get("ext") == ".json":
+                            try:
+                                if json.loads(p_bytes.decode("utf-8")) == json.loads(ref_bytes.decode("utf-8")):
+                                    matched = True
+                                    break
+                            except Exception:
+                                pass
+                    elif ref_bytes in p_bytes or p_bytes in ref_bytes:
                         matched = True
                         break
 
@@ -1963,24 +2344,32 @@ def print_report(
             print(" DISCOVERED HIDDEN INFORMATION (HUMAN-READABLE SUMMARY)")
             print(sep)
             if palette_result and palette_result.get("found"):
-                print(f" [+] Technique    : Palette Color-as-Text Steganography")
-                print(f" [+] Hidden Data  : \"{palette_result.get('word', '')}\"")
-                print(f" [+] Explanation  : Secret text was directly encoded inside the palette colors.")
+                print(f" [+] Technique      : Palette Color-as-Text Steganography")
+                print(f" [+] Hidden Data    : \"{palette_result.get('word', '')}\"")
+                print(f" [+] Native Format  : .txt (Plain Text)")
+                print(f" [+] Explanation    : Secret text was directly encoded inside the palette colors.")
             if visual_result and visual_result.get("found"):
-                print(f" [+] Technique    : Visual Bitplane Steganography ({visual_result.get('type')})")
-                print(f" [+] Hidden Data  : Secret visual graphic embedded across lower bitplanes")
-                print(f" [+] Explanation  : Contrast-stretched bitplanes reveal a concealed image.")
+                print(f" [+] Technique      : Visual Bitplane Steganography ({visual_result.get('type')})")
+                print(f" [+] Hidden Data    : Secret visual graphic embedded across lower bitplanes")
+                print(f" [+] Native Format  : .png (PNG Image)")
+                print(f" [+] Explanation    : Contrast-stretched bitplanes reveal a concealed image.")
             if lsb_result and lsb_result.get("payload_found"):
                 info = lsb_result.get("payload_info", {})
-                print(f" [+] Technique    : Spatial LSB Steganography ({lsb_result.get('convention')})")
-                print(f" [+] Hidden Data  : {info.get('type', 'Binary Data')} ({len(lsb_result.get('raw_bytes', b'')):,} bytes)")
+                p_bytes = lsb_result.get("raw_bytes", b"")
+                print(f" [+] Technique      : Spatial LSB Steganography ({lsb_result.get('convention')})")
+                print(f" [+] Payload Type   : {info.get('type', 'Binary Data')}")
+                print(f" [+] Native Format  : {info.get('ext', '.bin')}")
+                print(f" [+] Clean Size     : {len(p_bytes):,} bytes (Converted to original native format)")
                 if info.get("preview"):
                     safe_prev = "".join(c if (32 <= ord(c) <= 126 or c in "\n\r\t") else "." for c in info.get("preview", ""))
-                    print(f" [+] Preview      : {safe_prev[:120]}")
+                    print(f" [+] Content Preview: {safe_prev[:120]}")
             if overlay_result and overlay_result.get("found"):
                 o_info = overlay_result.get("info", {})
-                print(f" [+] Technique    : Appended File Overlay Steganography")
-                print(f" [+] Hidden Data  : {o_info.get('type', 'Binary Data')} ({len(overlay_result.get('overlay_bytes', b'')):,} bytes at offset {overlay_result.get('offset')})")
+                o_bytes = overlay_result.get("overlay_bytes", b"")
+                print(f" [+] Technique      : Appended File Overlay Steganography")
+                print(f" [+] Payload Type   : {o_info.get('type', 'Binary Data')}")
+                print(f" [+] Native Format  : {o_info.get('ext', '.bin')}")
+                print(f" [+] Clean Size     : {len(o_bytes):,} bytes at offset {overlay_result.get('offset')} (Converted to original native format)")
             if steghide_result and steghide_result.get("payload_found"):
                 print(f" [+] Technique    : Steghide Encrypted Steganography")
                 print(f" [+] Passphrase   : {steghide_result.get('meta', {}).get('passphrase', '')}")

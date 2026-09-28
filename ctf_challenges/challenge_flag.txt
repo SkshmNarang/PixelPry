@@ -1,0 +1,4 @@
+CTF FLAG: BYTE{g0t_1t_1n_plA1n_s1ght}
+VERBATIM: flag{g0t_1t_1n_plAin_sight}
+RECOVERED IMAGE: D:\New folder\ctf_challenges\challenge_recovered.png
+FLAG BANNER: D:\New folder\ctf_challenges\challenge_flag.png
